@@ -3,7 +3,7 @@ import base64
 import pytest
 
 from sttui.errors import TranscriptionError
-from sttui.transcribe import build_payload, parse_transcript
+from sttui.transcribe import build_payload, list_audio_models, parse_transcript
 
 
 def test_build_payload_structure() -> None:
@@ -44,3 +44,36 @@ def test_parse_transcript_chunk_content() -> None:
 def test_parse_transcript_invalid_shape() -> None:
     with pytest.raises(TranscriptionError):
         parse_transcript({"choices": []})
+
+
+def test_list_audio_models_filters_input_modality(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        status_code = 200
+
+        def json(self) -> dict:
+            return {
+                "data": [
+                    {
+                        "id": "openai/gpt-4",
+                        "architecture": {"input_modalities": ["text"]},
+                    },
+                    {
+                        "id": "openai/gpt-4o-mini-transcribe",
+                        "architecture": {"input_modalities": ["text", "audio"]},
+                    },
+                    {
+                        "id": "openai/gpt-4o-transcribe",
+                        "architecture": {"input_modalities": ["audio"]},
+                    },
+                ]
+            }
+
+    def fake_get(*args, **kwargs) -> FakeResponse:  # noqa: ANN002, ANN003
+        return FakeResponse()
+
+    monkeypatch.setattr("sttui.transcribe.requests.get", fake_get)
+
+    models = list_audio_models("or-test")
+    assert models == ["openai/gpt-4o-mini-transcribe", "openai/gpt-4o-transcribe"]

@@ -5,18 +5,19 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Static
+from textual.widgets import ContentSwitcher, Select, Static
 from textual.timer import Timer
 
 from sttui.clipboard import copy_text
 from sttui.config import RuntimeSettings
 from sttui.errors import ClipboardError, RecordingError, TranscriptionError
-from sttui.recording import RecorderSession
+from sttui.recording import RecorderSession, list_input_devices
 from sttui.storage import next_audio_path, write_transcript
-from sttui.transcribe import transcribe_audio
+from sttui.transcribe import list_audio_models, transcribe_audio
 
 
 class SttuiApp(App[None]):
@@ -121,6 +122,32 @@ class SttuiApp(App[None]):
         margin-top: 1;
         color: green;
     }
+
+    #settings_info {
+        margin-top: 1;
+        color: rgb(200, 210, 180);
+    }
+
+    #settings_hint {
+        color: rgb(160, 170, 150);
+    }
+
+    #settings_menu {
+        margin-top: 1;
+        border: round rgb(120, 170, 120);
+        padding: 1;
+        display: none;
+    }
+
+    #settings_title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #settings_subtitle {
+        color: rgb(180, 200, 170);
+        margin-bottom: 1;
+    }
     """
 
     BINDINGS = [
@@ -130,6 +157,7 @@ class SttuiApp(App[None]):
         Binding("u", "undo_last_transcript", "Undo", show=True),
         Binding("backspace", "undo_last_transcript", "Undo", show=True),
         Binding("enter", "confirm_or_restart", "Enter", show=True),
+        Binding("colon,shift:semicolon", "open_settings", "Settings", show=True),
         Binding("q", "quit_app", "Quit", show=True),
     ]
 
@@ -150,6 +178,24 @@ class SttuiApp(App[None]):
         self.notification_message: str = ""
         self.last_error_for_stderr: str | None = None
         self.transcripts: list[str] = []
+        self.settings_menu_open = False
+        self.settings_menu_step = "root"
+        self.active_model = settings.model
+        self.selected_input_device: int | None = None
+        self.selected_input_device_label = "default"
+        self._root_options: list[tuple[str, str]] = [
+            ("Select setting...", "__none__"),
+            ("Change model", "change_model"),
+            ("Change device", "change_device"),
+        ]
+        self._device_options: list[tuple[str, int]] = []
+        self._model_options: list[tuple[str, str]] = [
+            (self.active_model, self.active_model)
+        ]
+        self._models_loaded = False
+        self._loading_models = False
+        self._suspend_select_events = False
+        self._load_input_devices()
 
     def compose(self) -> ComposeResult:
         yield Static("sttui - speech to text", id="title")
@@ -164,9 +210,40 @@ class SttuiApp(App[None]):
                     yield Static("U/Backspace: undo last", classes="action_box")
                 yield Static("", id="hint")
                 yield Static("", id="notification")
+                yield Static("", id="settings_info")
+                yield Static("type ':' to change settings", id="settings_hint")
+                with Vertical(id="settings_menu"):
+                    yield Static("Settings", id="settings_title")
+                    yield Static("Choose a settings category", id="settings_subtitle")
+                    with ContentSwitcher(
+                        initial="settings_root_select", id="settings_switcher"
+                    ):
+                        yield Select[str](
+                            self._root_options,
+                            prompt="Settings",
+                            allow_blank=False,
+                            disabled=True,
+                            id="settings_root_select",
+                        )
+                        yield Select[int](
+                            self._device_options,
+                            prompt="Recording device",
+                            allow_blank=False,
+                            disabled=True,
+                            id="device_select",
+                        )
+                        yield Select[str](
+                            self._model_options,
+                            prompt="Transcription model",
+                            allow_blank=False,
+                            disabled=True,
+                            id="model_select",
+                        )
 
     def on_mount(self) -> None:
         self.set_interval(0.12, self._tick)
+        self._apply_selected_device_to_widget()
+        self._apply_selected_model_to_widget()
         self._render_all()
 
     def _tick(self) -> None:
@@ -181,6 +258,89 @@ class SttuiApp(App[None]):
         self._render_quick_actions()
         self._render_hint()
         self._render_notification()
+        self._render_settings_info()
+        self._render_settings_menu()
+
+    def _load_input_devices(self) -> None:
+        try:
+            devices, default_index = list_input_devices()
+        except Exception:
+            self._device_options = [("Default input device", -1)]
+            self.selected_input_device = None
+            self.selected_input_device_label = "default"
+            return
+
+        if not devices:
+            self._device_options = [("No input device available", -1)]
+            self.selected_input_device = None
+            self.selected_input_device_label = "none"
+            return
+
+        self._device_options = [(label, index) for index, label in devices]
+        selected = default_index
+        if selected is None:
+            selected = devices[0][0]
+        self.selected_input_device = selected
+        label_map = {idx: label for idx, label in devices}
+        self.selected_input_device_label = label_map.get(selected, devices[0][1])
+
+    def _apply_selected_device_to_widget(self) -> None:
+        select = self.query_one("#device_select", Select)
+        if self.selected_input_device is not None:
+            self._suspend_select_events = True
+            select.value = self.selected_input_device
+            self._suspend_select_events = False
+
+    def _apply_selected_model_to_widget(self) -> None:
+        select = self.query_one("#model_select", Select)
+        if self._model_options:
+            self._suspend_select_events = True
+            select.value = self.active_model
+            self._suspend_select_events = False
+
+    def _reset_root_selection(self) -> None:
+        root_select = self.query_one("#settings_root_select", Select)
+        self._suspend_select_events = True
+        root_select.value = "__none__"
+        self._suspend_select_events = False
+
+    def _render_settings_info(self) -> None:
+        text = (
+            f"◯ model={self.active_model}\n◯ device={self.selected_input_device_label}"
+        )
+        self.query_one("#settings_info", Static).update(text)
+
+    def _render_settings_menu(self) -> None:
+        menu = self.query_one("#settings_menu", Vertical)
+        switcher = self.query_one("#settings_switcher", ContentSwitcher)
+        root_select = self.query_one("#settings_root_select", Select)
+        device_select = self.query_one("#device_select", Select)
+        model_select = self.query_one("#model_select", Select)
+        subtitle = self.query_one("#settings_subtitle", Static)
+        is_open = self.settings_menu_open
+        menu.styles.display = "block" if is_open else "none"
+        switcher.current = {
+            "root": "settings_root_select",
+            "device": "device_select",
+            "model": "model_select",
+        }.get(self.settings_menu_step, "settings_root_select")
+        show_root = is_open and self.settings_menu_step == "root"
+        show_device = is_open and self.settings_menu_step == "device"
+        show_model = is_open and self.settings_menu_step == "model"
+        root_select.disabled = not show_root
+        device_select.disabled = not show_device
+        model_select.disabled = not show_model
+        if show_root:
+            subtitle.update("Choose a settings category")
+            self.set_focus(root_select)
+        elif show_device:
+            subtitle.update("Choose recording device")
+            self.set_focus(device_select)
+        elif show_model:
+            subtitle.update("Choose transcription model")
+            self.set_focus(model_select)
+        elif self.focused in {device_select, root_select, model_select}:
+            self.set_focus(None)
 
     def _render_state_line(self) -> None:
         """Render one-line state banner with status-specific color."""
@@ -263,7 +423,102 @@ class SttuiApp(App[None]):
         self.last_error_for_stderr = message
         self._render_all()
 
+    def action_open_settings(self) -> None:
+        if self.status in {"recording", "transcribing"}:
+            self._set_notification("Stop recording before changing settings")
+            return
+        if self.settings_menu_open:
+            self.settings_menu_open = False
+            self.settings_menu_step = "root"
+            self._reset_root_selection()
+            self._render_settings_menu()
+            return
+        self.settings_menu_open = True
+        self.settings_menu_step = "root"
+        self._reset_root_selection()
+        self._render_settings_menu()
+
+    @on(Select.Changed, "#settings_root_select")
+    def on_settings_root_select_changed(self, event: Select.Changed) -> None:
+        if self._suspend_select_events:
+            return
+        value = event.value
+        if value == "change_device":
+            self.settings_menu_step = "device"
+            self._render_settings_menu()
+            return
+        if value == "change_model":
+            self.settings_menu_step = "model"
+            self._render_settings_menu()
+            if not self._models_loaded and not self._loading_models:
+                asyncio.create_task(self._load_models_async())
+            return
+        if value == "__none__":
+            return
+
+    @on(Select.Changed, "#device_select")
+    def on_device_select_changed(self, event: Select.Changed) -> None:
+        if self._suspend_select_events:
+            return
+        value = event.value
+        if not isinstance(value, int) or value < 0:
+            self.selected_input_device = None
+            self.selected_input_device_label = "default"
+            self._render_settings_info()
+            return
+        self.selected_input_device = value
+        label_map = {v: l for l, v in self._device_options}
+        self.selected_input_device_label = label_map.get(value, str(value))
+        self.settings_menu_open = False
+        self.settings_menu_step = "root"
+        self._render_all()
+        self._set_notification("Recording device updated")
+
+    @on(Select.Changed, "#model_select")
+    def on_model_select_changed(self, event: Select.Changed) -> None:
+        if self._suspend_select_events:
+            return
+        value = event.value
+        if not isinstance(value, str) or not value or value == "__none__":
+            return
+        self.active_model = value
+        self.settings_menu_open = False
+        self.settings_menu_step = "root"
+        self._render_all()
+        self._set_notification("Model updated")
+
+    async def _load_models_async(self) -> None:
+        self._loading_models = True
+        self._set_notification("Loading models...")
+        try:
+            models = await asyncio.to_thread(list_audio_models, self.settings.api_key)
+        except TranscriptionError as exc:
+            self._loading_models = False
+            self._set_notification(f"Model list failed: {exc}")
+            return
+        self._loading_models = False
+        self._models_loaded = True
+        if not models:
+            self._model_options = [("No audio-input models found", "__none__")]
+            self.query_one("#model_select", Select).set_options(self._model_options)
+            self.query_one("#model_select", Select).disabled = True
+            self._set_notification("No audio-input models available")
+            return
+        self._model_options = [(model, model) for model in models]
+        model_select = self.query_one("#model_select", Select)
+        self._suspend_select_events = True
+        model_select.set_options(self._model_options)
+        self._suspend_select_events = False
+        if self.active_model not in models:
+            self.active_model = models[0]
+            self._render_settings_info()
+        self._apply_selected_model_to_widget()
+        self._render_settings_menu()
+        self._set_notification("Models loaded")
+
     async def action_toggle_record(self) -> None:
+        if self.settings_menu_open:
+            return
         if self.status == "recording":
             await self.action_stop_record()
             return
@@ -276,7 +531,9 @@ class SttuiApp(App[None]):
         self.error_message = None
         self.audio_path = next_audio_path(self.settings.recordings_dir)
         self.session = RecorderSession(
-            output_path=self.audio_path, max_seconds=self.settings.max_seconds
+            output_path=self.audio_path,
+            max_seconds=self.settings.max_seconds,
+            input_device=self.selected_input_device,
         )
         try:
             self.session.start()
@@ -296,6 +553,8 @@ class SttuiApp(App[None]):
             asyncio.create_task(self.action_stop_record())
 
     async def action_stop_record(self) -> None:
+        if self.settings_menu_open:
+            return
         if self.status != "recording" or self.session is None:
             return
         if self._max_timer is not None:
@@ -318,7 +577,7 @@ class SttuiApp(App[None]):
             transcript = await asyncio.to_thread(
                 transcribe_audio,
                 api_key=self.settings.api_key,
-                model=self.settings.model,
+                model=self.active_model,
                 prompt=self.settings.prompt,
                 audio_path=audio_path,
             )
@@ -332,6 +591,8 @@ class SttuiApp(App[None]):
         self._render_all()
 
     def action_copy_transcript(self) -> None:
+        if self.settings_menu_open:
+            return
         if not self.transcripts:
             self._set_notification("No transcript to copy")
             return
@@ -353,6 +614,8 @@ class SttuiApp(App[None]):
 
     def action_undo_last_transcript(self) -> None:
         """Remove the most recent transcript from history."""
+        if self.settings_menu_open:
+            return
         if self.status in {"recording", "transcribing"}:
             self._set_notification("Stop recording before undo")
             return
@@ -367,6 +630,11 @@ class SttuiApp(App[None]):
         self._set_notification("Removed last transcript")
 
     def action_confirm_or_restart(self) -> None:
+        if self.settings_menu_open:
+            self.settings_menu_open = False
+            self.settings_menu_step = "root"
+            self._render_settings_menu()
+            return
         if self.status == "done" and self.settings.stdout_mode and self.transcript:
             self.emit_stdout = True
             self.exit_code = 0
