@@ -4,7 +4,7 @@ No browser. No Web UI. Just fast speech-to-text in your terminal.
 
 ## Features
 
-- Records audio with `pw-record`.
+- Records audio directly from your microphone via `sounddevice`.
 - Shows an interactive Textual TUI with record/transcribe states.
 - Sends WAV audio to OpenRouter as `input_audio`.
 - Saves `.wav` and `.txt` outputs in a timestamped naming scheme.
@@ -12,10 +12,9 @@ No browser. No Web UI. Just fast speech-to-text in your terminal.
 
 ## Requirements
 
-- Linux with PipeWire (`pw-record`)
+- Linux audio input device and PortAudio runtime (for `sounddevice`)
 - Python 3.11+
 - OpenRouter API key
-- Optional clipboard tools: `wl-copy` or `xclip`
 
 ## Install
 
