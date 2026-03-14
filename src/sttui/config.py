@@ -22,6 +22,7 @@ class RuntimeSettings:
     model: str = DEFAULT_MODEL
     prompt: str = DEFAULT_PROMPT
     max_seconds: int = DEFAULT_MAX_SECONDS
+    input_device: int | None = None
     recordings_dir: Path = DEFAULT_RECORDINGS_DIR
     stdout_mode: bool = False
     debug: bool = False
@@ -60,6 +61,24 @@ def _int_or_default(value: object, default: int) -> int:
     return default
 
 
+def _optional_non_negative_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _as_section(value: object) -> dict:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
 def load_runtime_settings(
     *,
     config_path: Path = DEFAULT_CONFIG_PATH,
@@ -69,12 +88,9 @@ def load_runtime_settings(
     debug: bool = False,
 ) -> RuntimeSettings:
     cfg = load_config_file(config_path)
-    openrouter = (
-        cfg.get("openrouter") if isinstance(cfg.get("openrouter"), dict) else {}
-    )
-    transcription = (
-        cfg.get("transcription") if isinstance(cfg.get("transcription"), dict) else {}
-    )
+    openrouter = _as_section(cfg.get("openrouter"))
+    transcription = _as_section(cfg.get("transcription"))
+    audio = _as_section(cfg.get("audio"))
 
     api_key = str(openrouter.get("api_key", "")).strip()
     if not api_key:
@@ -83,6 +99,7 @@ def load_runtime_settings(
     model = str(transcription.get("model") or DEFAULT_MODEL)
     prompt = str(transcription.get("prompt") or DEFAULT_PROMPT)
     max_seconds = _int_or_default(transcription.get("max_seconds"), DEFAULT_MAX_SECONDS)
+    input_device = _optional_non_negative_int(audio.get("input_device"))
 
     if model_override:
         model = model_override
@@ -101,6 +118,7 @@ def load_runtime_settings(
         model=model,
         prompt=prompt,
         max_seconds=max_seconds,
+        input_device=input_device,
         recordings_dir=recordings_dir,
         stdout_mode=stdout_mode,
         debug=debug,

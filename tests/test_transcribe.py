@@ -1,9 +1,10 @@
 import base64
 
 import pytest
+import requests
 
 from sttui.errors import TranscriptionError
-from sttui.transcribe import build_payload, parse_transcript
+from sttui.transcribe import build_payload, list_audio_models, parse_transcript
 
 
 def test_build_payload_structure() -> None:
@@ -44,3 +45,65 @@ def test_parse_transcript_chunk_content() -> None:
 def test_parse_transcript_invalid_shape() -> None:
     with pytest.raises(TranscriptionError):
         parse_transcript({"choices": []})
+
+
+def test_list_audio_models_filters_and_sorts(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict:
+            return {
+                "data": [
+                    {
+                        "id": "b/model",
+                        "architecture": {"input_modalities": ["text", "audio"]},
+                    },
+                    {
+                        "id": "a/model",
+                        "architecture": {"input_modalities": ["Audio"]},
+                    },
+                    {
+                        "id": "c/model",
+                        "architecture": {"input_modalities": ["text"]},
+                    },
+                    {
+                        "id": "a/model",
+                        "architecture": {"input_modalities": ["audio"]},
+                    },
+                ]
+            }
+
+    def fake_get(*args: object, **kwargs: object) -> Response:
+        return Response()
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    assert list_audio_models("or-test") == ["a/model", "b/model"]
+
+
+def test_list_audio_models_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Response:
+        status_code = 503
+
+        @staticmethod
+        def json() -> dict:
+            return {}
+
+    def fake_get(*args: object, **kwargs: object) -> Response:
+        return Response()
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    with pytest.raises(TranscriptionError, match="api error: HTTP 503"):
+        list_audio_models("or-test")
+
+
+def test_list_audio_models_network_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_get(*args: object, **kwargs: object) -> object:
+        raise requests.RequestException("boom")
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    with pytest.raises(TranscriptionError, match="network error"):
+        list_audio_models("or-test")
