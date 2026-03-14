@@ -1,0 +1,30 @@
+[project]
+name = "sttui"
+version = "0.1.0"
+description = "Linux-first speech-to-text terminal UI"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "sttui contributors" }]
+dependencies = [
+  "requests>=2.31.0",
+  "textual>=0.79.0",
+  "pytest>=8.0.0",
+]
+
+[project.scripts]
+sttui = "sttui.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
