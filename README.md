@@ -1,6 +1,6 @@
 # sttui
 
-Linux-first speech-to-text terminal UI for fast one-shot dictation.
+No browser. No Web UI. Just fast speech-to-text in your terminal.
 
 ## Features
 
@@ -20,8 +20,18 @@ Linux-first speech-to-text terminal UI for fast one-shot dictation.
 ## Install
 
 ```bash
-uv sync
-uv run sttui --help
+# Recommended: isolated install for CLI tools
+pipx install sttui
+
+# Verify install
+sttui --help
+```
+
+Alternative with pip:
+
+```bash
+python -m pip install --user sttui
+sttui --help
 ```
 
 ## Config
@@ -38,10 +48,23 @@ prompt = "Please transcribe this audio file."
 max_seconds = 600
 ```
 
-## Usage
+## Commands
 
 ```bash
+# Show CLI help
+uv run sttui --help
+
+# Start interactive dictation TUI
 uv run sttui
+
+# TUI + write transcript to stdout on Enter
+uv run sttui --stdout
+
+# Override model and recording cap for this run
+uv run sttui --model google/gemini-2.5-flash --max-seconds 120
+
+# Use a custom config file
+uv run sttui --config ~/.config/sttui/config.toml
 ```
 
 Keybindings:
@@ -58,11 +81,14 @@ CLI flags:
 - `--model <name>`
 - `--max-seconds <int>`
 - `--debug`
+- `--config <path>`
 
 By default, recordings are stored in `~/.local/share/sttui/recordings/`.
 
 ## Development
 
 ```bash
+uv sync
+uv run sttui --help
 uv run pytest
 ```
