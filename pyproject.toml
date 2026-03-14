@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Linux-first speech-to-text terminal UI"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "sttui contributors" }]
 dependencies = [
   "requests>=2.31.0",
