@@ -7,13 +7,22 @@ from pathlib import Path
 from typing import Literal
 
 from rich.text import Text
+
+from textual.content import Content
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.css.query import NoMatches
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.reactive import reactive
-from textual.widgets import RadioButton, RadioSet, Static
+from textual.widgets import (
+    ContentSwitcher,
+    DataTable,
+    Header,
+    RadioButton,
+    RadioSet,
+    Static,
+)
 from textual.timer import Timer
 
 from sttui.clipboard import copy_text
@@ -35,13 +44,20 @@ class SettingsRadioSet(RadioSet, inherit_bindings=False):
 
 
 class SettingsPanel(Static):
-    """Settings summary and selector panel."""
+    """Settings summary and selector panel.
+
+    ContentSwitcher has three fixed panes:
+      - "settings_summary"  : 2-row DataTable (always composed, never recomposed)
+      - "settings_audio"    : audio device radio list
+      - "settings_models"   : model radio list
+
+    Switching between them is done by setting ContentSwitcher.current directly.
+    No recompose is used, so reactive state drives only data updates, not
+    widget reconstruction.
+    """
 
     BINDINGS = [
-        Binding("up,k", "radio_previous", "Previous", show=False),
-        Binding("down,j", "radio_next", "Next", show=False),
-        Binding("left,h", "previous_tab", "Prev Tab"),
-        Binding("right,l", "next_tab", "Next Tab"),
+        Binding("escape", "close_settings", "Close", show=False),
     ]
 
     class InputDeviceChanged(Message):
@@ -54,61 +70,118 @@ class SettingsPanel(Static):
             self.model = model
             super().__init__()
 
-    is_open = reactive(False, recompose=True)
-    audio_devices = reactive((), recompose=True)
-    model_ids = reactive((), recompose=True)
-    active_tab = reactive("audio", recompose=True)
-
     def __init__(self, *, model: str, input_device: int | None) -> None:
         super().__init__(id="settings_widget")
         self.selected_model = model
         self.selected_input_device = input_device
         self.default_input_index: int | None = None
+        self._is_open = False
+
+    # ------------------------------------------------------------------
+    # Compose: three fixed panes, no recompose
+    # ------------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
-        if not self.is_open:
-            device = (
-                "Default"
-                if self.selected_input_device is None
-                else str(self.selected_input_device)
-            )
-            hint = Text("Type ':' to change settings", style="bold rgb(255,210,120)")
-            yield Static("Settings:", id="settings_title")
-            yield Static(f"\u25e6 Audio device: {device}", id="settings_line_audio")
-            yield Static(
-                f"\u25e6 Transciption model: {self.selected_model}",
-                id="settings_line_model",
-            )
-            yield Static(hint, id="settings_hint")
-            return
-
-        yield Static(self._tabs_bar_text(), id="settings_tabs_bar")
-        if self.active_tab == "audio":
-            with SettingsRadioSet(id="audio_radio"):
-                for index, label in self.audio_devices:
-                    checked = index == self._effective_input_device()
-                    suffix = " (current)" if checked else ""
-                    yield RadioButton(f"{index}: {label}{suffix}", value=checked)
-        else:
-            with SettingsRadioSet(id="model_radio"):
-                for model in self.model_ids:
-                    yield RadioButton(model, value=model == self.selected_model)
+        with ContentSwitcher(initial="settings_summary"):
+            yield DataTable(id="settings_summary")
+            with Vertical(id="settings_audio"):
+                yield Static("[ Audio ]", id="settings_audio_label")
+                with SettingsRadioSet(id="audio_radio"):
+                    pass  # populated in set_audio_devices
+            with Vertical(id="settings_models"):
+                yield Static("[ Models ]", id="settings_models_label")
+                with SettingsRadioSet(id="model_radio"):
+                    pass  # populated in set_models
 
     def on_mount(self) -> None:
-        if self.is_open:
-            self.focus_first_control()
+        self._update_summary_table()
+        self.query_one("#settings_summary", DataTable).focus()
 
-    def _effective_input_device(self) -> int | None:
-        if self.selected_input_device is not None:
-            return self.selected_input_device
-        return self.default_input_index
+    # ------------------------------------------------------------------
+    # Summary table
+    # ------------------------------------------------------------------
+
+    def _update_summary_table(self) -> None:
+        device = self._device_label()
+        try:
+            table = self.query_one("#settings_summary", DataTable)
+            table.clear(columns=True)
+            table.add_columns("Setting", "Value")
+            table.add_row("Audio", Text(device, style="silver"))
+            table.add_row("Model", Text(self.selected_model, style="silver"))
+        except NoMatches:
+            pass
+
+    def _device_label(self) -> str:
+        if self.selected_input_device is None:
+            return "Default"
+        return next(
+            (
+                name
+                for idx, name in (self._audio_devices or ())
+                if idx == self.selected_input_device
+            ),
+            str(self.selected_input_device),
+        )
+
+    # ------------------------------------------------------------------
+    # Open / close
+    # ------------------------------------------------------------------
 
     def set_open(self, open_state: bool) -> None:
-        self.is_open = open_state
-        if open_state:
-            self.active_tab = "audio"
-            self.call_after_refresh(self.focus_first_control)
-            self.call_after_refresh(self._focus_active_tab_controls)
+        self._is_open = open_state
+        if not open_state:
+            self.query_one(ContentSwitcher).current = "settings_summary"
+            self._update_summary_table()
+            self.call_after_refresh(
+                lambda: self.query_one("#settings_summary", DataTable).focus()
+            )
+
+    def action_close_settings(self) -> None:
+        if self._is_open:
+            self.post_message(SettingsPanel.CloseRequested())
+
+    class CloseRequested(Message):
+        pass
+
+    class PaneOpened(Message):
+        """Sent when the user opens any detail pane; app should load data."""
+
+        pass
+
+    def open_audio_pane(self) -> None:
+        was_open = self._is_open
+        self._is_open = True
+        self.query_one(ContentSwitcher).current = "settings_audio"
+        self.call_after_refresh(self._focus_audio)
+        if not was_open:
+            self.post_message(SettingsPanel.PaneOpened())
+
+    def open_models_pane(self) -> None:
+        was_open = self._is_open
+        self._is_open = True
+        self.query_one(ContentSwitcher).current = "settings_models"
+        self.call_after_refresh(self._focus_models)
+        if not was_open:
+            self.post_message(SettingsPanel.PaneOpened())
+
+    def _focus_audio(self) -> None:
+        try:
+            self.query_one("#audio_radio", SettingsRadioSet).focus()
+        except NoMatches:
+            pass
+
+    def _focus_models(self) -> None:
+        try:
+            self.query_one("#model_radio", SettingsRadioSet).focus()
+        except NoMatches:
+            pass
+
+    # ------------------------------------------------------------------
+    # Data population
+    # ------------------------------------------------------------------
+
+    _audio_devices: list[tuple[int, str]] | None = None
 
     def set_audio_devices(
         self,
@@ -116,21 +189,47 @@ class SettingsPanel(Static):
         *,
         default_index: int | None,
     ) -> None:
+        self._audio_devices = devices
         self.default_input_index = default_index
-        self.audio_devices = tuple(devices)
         effective = self._effective_input_device()
         available_ids = {index for index, _ in devices}
         if effective is not None and effective not in available_ids:
             self.selected_input_device = default_index
-        if self.is_open:
-            self.call_after_refresh(self._focus_active_tab_controls)
+
+        radio = self.query_one("#audio_radio", SettingsRadioSet)
+        radio.remove_children()
+        for index, label in devices:
+            checked = index == self._effective_input_device()
+            suffix = " (current)" if checked else ""
+            radio.mount(RadioButton(f"{index}: {label}{suffix}", value=checked))
+
+        if not self._is_open:
+            self._update_summary_table()
+        elif self.query_one(ContentSwitcher).current == "settings_audio":
+            self.call_after_refresh(self._focus_audio)
 
     def set_models(self, models: list[str]) -> None:
-        self.model_ids = tuple(models)
-        if self.selected_model not in self.model_ids and self.model_ids:
-            self.selected_model = self.model_ids[0]
-        if self.is_open:
-            self.call_after_refresh(self._focus_active_tab_controls)
+        if self.selected_model not in models and models:
+            self.selected_model = models[0]
+
+        radio = self.query_one("#model_radio", SettingsRadioSet)
+        radio.remove_children()
+        for model in models:
+            radio.mount(RadioButton(model, value=model == self.selected_model))
+
+        if not self._is_open:
+            self._update_summary_table()
+        elif self.query_one(ContentSwitcher).current == "settings_models":
+            self.call_after_refresh(self._focus_models)
+
+    def _effective_input_device(self) -> int | None:
+        if self.selected_input_device is not None:
+            return self.selected_input_device
+        return self.default_input_index
+
+    # ------------------------------------------------------------------
+    # Radio selection
+    # ------------------------------------------------------------------
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         radio_set = event.radio_set
@@ -147,66 +246,19 @@ class SettingsPanel(Static):
                 self.selected_model = model
                 self.post_message(self.ModelChanged(model))
 
-    def focus_first_control(self) -> None:
-        if not self.is_open:
-            return
-        controls = list(self.query("RadioSet"))
-        if controls:
-            controls[0].focus()
+    # ------------------------------------------------------------------
+    # Summary row selection → open correct pane
+    # ------------------------------------------------------------------
 
-    def _focus_active_tab_controls(self) -> None:
-        if not self.is_open:
+    def on_data_table_cell_selected(self, event: DataTable.CellSelected) -> None:
+        if self._is_open:
             return
-        if self.active_tab == "models":
-            radio = self.query_one("#model_radio", SettingsRadioSet)
+        if event.data_table.id != "settings_summary":
+            return
+        if event.data_table.cursor_row == 0:
+            self.open_audio_pane()
         else:
-            radio = self.query_one("#audio_radio", SettingsRadioSet)
-        radio.focus()
-
-    def action_previous_tab(self) -> None:
-        self._switch_tab(-1)
-
-    def action_next_tab(self) -> None:
-        self._switch_tab(1)
-
-    def _switch_tab(self, delta: int) -> None:
-        if not self.is_open:
-            return
-        tabs = ["audio", "models"]
-        active = self.active_tab if self.active_tab in tabs else tabs[0]
-        idx = tabs.index(active)
-        self.active_tab = tabs[(idx + delta) % len(tabs)]
-        self.call_after_refresh(self._focus_active_tab_controls)
-
-    def action_radio_previous(self) -> None:
-        radio = self._active_radio_set()
-        if radio is not None:
-            radio.action_previous_button()
-
-    def action_radio_next(self) -> None:
-        radio = self._active_radio_set()
-        if radio is not None:
-            radio.action_next_button()
-
-    def _active_radio_set(self) -> SettingsRadioSet | None:
-        try:
-            if self.active_tab == "models":
-                return self.query_one("#model_radio", SettingsRadioSet)
-            return self.query_one("#audio_radio", SettingsRadioSet)
-        except NoMatches:
-            return None
-
-    def _tabs_bar_text(self) -> Text:
-        text = Text()
-        if self.active_tab == "audio":
-            text.append("[ Audio ]", style="bold black on #78B478")
-            text.append(" ")
-            text.append("[ Models ]", style="#AAAAAA")
-        else:
-            text.append("[ Audio ]", style="#AAAAAA")
-            text.append(" ")
-            text.append("[ Models ]", style="bold black on #78B478")
-        return text
+            self.open_models_pane()
 
 
 class SttuiApp(App[None]):
@@ -221,16 +273,15 @@ class SttuiApp(App[None]):
     - short-lived notification line
     """
 
+    TITLE = "Speak To TUI"
+
     DEFAULT_CSS = """
     Screen {
         layout: vertical;
     }
 
-    #title {
+    Header {
         dock: top;
-        height: 3;
-        content-align: center middle;
-        text-style: bold;
     }
 
     #layout {
@@ -311,27 +362,30 @@ class SttuiApp(App[None]):
         height: auto;
         margin-top: 1;
         padding: 0 1;
-        color: rgb(228, 210, 140);
     }
 
-    #settings_title {
-        color: rgb(245, 220, 130);
-        text-style: bold;
+    #settings_summary {
+        height: 3;
     }
 
-    #settings_line_audio {
-        color: rgb(236, 215, 145);
+    ContentSwitcher {
+        height: auto;
     }
 
-    #settings_line_model {
-        color: rgb(236, 215, 145);
+    DataTable {
+        margin: 1 0;
     }
 
     #settings_hint {
         color: rgb(255, 210, 120);
     }
 
-    #settings_tabs_bar {
+    #settings_audio_label {
+        height: 1;
+        margin-bottom: 1;
+    }
+
+    #settings_models_label {
         height: 1;
         margin-bottom: 1;
     }
@@ -372,7 +426,6 @@ class SttuiApp(App[None]):
         Binding("u", "undo_last_transcript", "Undo", show=True),
         Binding("backspace", "undo_last_transcript", "Undo", show=True),
         Binding("enter", "confirm_or_restart", "Enter", show=True),
-        Binding("colon", "toggle_settings", "Settings", show=False),
         Binding("escape", "close_settings", "Close Settings", show=False),
         Binding("q", "quit_app", "Quit", show=True),
     ]
@@ -395,9 +448,19 @@ class SttuiApp(App[None]):
         self.current_input_device = settings.input_device
         self.current_model = settings.model
         self.settings_open = False
+        self._last_volume: float = 0.0
+
+    def format_title(self, title: str, sub_title: str) -> Content:
+        markup = ""
+        for char in title:
+            if char.islower():
+                markup += f"[i silver]{char}[/]"
+            else:
+                markup += f"[bold #FFFFFF]{char}[/]"
+        return Content.from_markup(markup)
 
     def compose(self) -> ComposeResult:
-        yield Static("sttui - speech to text", id="title")
+        yield Header()
         with Vertical(id="layout"):
             with Vertical(id="panel"):
                 yield Static("", id="state_line")
@@ -444,8 +507,22 @@ class SttuiApp(App[None]):
             widget.update("Idle")
         elif self.status == "recording":
             widget.add_class("state-recording")
-            spinner = ["/", "|", "\\", "-"][self._spinner_index]
-            widget.update(f"Recording {spinner}")
+            power = self.session.current_power if self.session else 0.0
+            normalized = min(power / 2000.0, 1.0)
+            width = widget.size.width - 12
+            if width < 10:
+                width = 40
+            bar_width = int(normalized * width)
+            last_bar_width = int(self._last_volume * width)
+            self._last_volume = normalized
+
+            bar = Text()
+            if bar_width > 0:
+                bar.append("█" * bar_width, style="bold #FF8C00")
+            if bar_width < last_bar_width:
+                decay = last_bar_width - bar_width
+                bar.append("░" * decay, style="dim")
+            widget.update(Text.assemble("Recording ", bar))
         elif self.status == "transcribing":
             widget.add_class("state-transcribing")
             dots = [".", "..", "...", "...."][self._spinner_index]
@@ -514,6 +591,7 @@ class SttuiApp(App[None]):
             self._start_recording()
 
     def _start_recording(self) -> None:
+        self._last_volume = 0.0
         self.transcript = None
         self.transcript_path = None
         self.error_message = None
@@ -556,22 +634,25 @@ class SttuiApp(App[None]):
         self._render_all()
         await self._run_transcription()
 
-    async def action_toggle_settings(self) -> None:
-        self.settings_open = not self.settings_open
+    async def on_settings_panel_pane_opened(
+        self, message: SettingsPanel.PaneOpened
+    ) -> None:
+        """Load devices and models when the user first opens the settings detail."""
+        self.settings_open = True
         panel = self.query_one(SettingsPanel)
-        panel.set_open(self.settings_open)
-        if not self.settings_open:
-            return
 
         panel.set_audio_devices([], default_index=None)
         panel.set_models([])
 
-        self._set_notification("Loading available models...", timeout=1.5)
-
         try:
             devices, default_index = await asyncio.to_thread(list_input_devices)
             panel.set_audio_devices(devices, default_index=default_index)
-        except Exception:
+        except Exception as exc:
+            self._set_notification(
+                f"Failed to load audio devices: {exc}",
+                severity="warning",
+                timeout=4.0,
+            )
             panel.set_audio_devices([], default_index=None)
 
         try:
@@ -580,10 +661,6 @@ class SttuiApp(App[None]):
                 self.settings.api_key,
             )
             panel.set_models(models)
-            self._set_notification(
-                f"Loaded {len(models)} audio model(s)",
-                timeout=2.5,
-            )
         except TranscriptionError as exc:
             panel.set_models([])
             self._set_notification(
@@ -599,17 +676,24 @@ class SttuiApp(App[None]):
         panel = self.query_one(SettingsPanel)
         panel.set_open(False)
 
+    def on_settings_panel_close_requested(
+        self, message: SettingsPanel.CloseRequested
+    ) -> None:
+        self.action_close_settings()
+
     def on_settings_panel_input_device_changed(
         self,
         message: SettingsPanel.InputDeviceChanged,
     ) -> None:
         self.current_input_device = message.input_device
+        self.action_close_settings()
 
     def on_settings_panel_model_changed(
         self,
         message: SettingsPanel.ModelChanged,
     ) -> None:
         self.current_model = message.model
+        self.action_close_settings()
 
     async def _run_transcription(self) -> None:
         assert self.audio_path is not None
@@ -636,16 +720,8 @@ class SttuiApp(App[None]):
             self._set_notification("No transcript to copy", severity="warning")
             return
         self.transcript = self.transcripts[-1]
-        asyncio.create_task(self._copy_transcript_async())
-        self._set_notification("Copying transcript...")
-
-    async def _copy_transcript_async(self) -> None:
-        """Run clipboard copy off the UI thread to avoid hangs."""
-        if not self.transcript:
-            self._set_notification("No transcript to copy", severity="warning")
-            return
         try:
-            await asyncio.to_thread(copy_text, self.transcript)
+            copy_text(self.transcript)
         except ClipboardError as exc:
             self._set_error(str(exc))
             return
