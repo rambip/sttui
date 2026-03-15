@@ -13,7 +13,7 @@
 
 # Setup
 
-```
+```bash
 pip install sttui
 ```
 
@@ -21,24 +21,41 @@ pip install sttui
 
 Then, you must have an account on [openrouter](enrouter.ai/), and get an API key.
 
-When you first start the app, you will be prompted for it.
+To register it, run:
+
+```bash
+sttui auth
+```
 
 <details>
   <summary>Storage of your key</summary>
 
-  Your key will be stored inside ~/.config/sttui/config.toml
+  Your key will be stored inside ~/.config/sttui/auth.json
   Make sure you don't commit this file !
 </details>
 
 # Config
 
-When you first start the app, a config file is created at:  `~/.config/sttui/config.toml`
+When you first start the app, a config file is created at: `~/.config/sttui/config.toml`
 
 You can specify the default model (without the `openrouter` prefix), the prompt, and the maximum audio length.
 ```toml
 [transcription]
-model = "google/gemini-2.5-flash"
-prompt = "Please transcribe this audio file."
+model = "mistralai/voxtral-small-24b-2507"
+prompt = """
+You are a helpful assistant that can hear audio and write text.
+Return a transcription of the user audio as json. If the user request is empty, return null.
+<format>
+{
+  "transcription": ""
+}
+</format>
+<format>
+{
+  "transcription": null
+}
+</format>
+"""
 max_seconds = 600
 ```
 
@@ -51,6 +68,9 @@ sttui
 
 # Show CLI help
 sttui --help
+
+# Set or update API key
+sttui auth
 
 # TUI + write transcript to stdout on Enter
 sttui --stdout

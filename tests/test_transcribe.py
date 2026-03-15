@@ -16,18 +16,18 @@ def test_build_payload_structure() -> None:
     audio_b64 = base64.b64encode(b"wav").decode("ascii")
     payload = build_payload(model="m", prompt="p", audio_b64=audio_b64)
     assert payload["model"] == "m"
-    msg = payload["messages"][0]
+    assert payload["messages"][0]["role"] == "system"
+    assert payload["messages"][0]["content"] == "p"
+    msg = payload["messages"][1]
     assert msg["role"] == "user"
     content = msg["content"]
-    assert content[0]["type"] == "text"
-    assert content[0]["text"] == "p"
-    assert content[1]["type"] == "input_audio"
-    assert content[1]["input_audio"]["format"] == "wav"
-    assert content[1]["input_audio"]["data"] == audio_b64
+    assert content[0]["type"] == "input_audio"
+    assert content[0]["input_audio"]["format"] == "wav"
+    assert content[0]["input_audio"]["data"] == audio_b64
 
 
 def test_parse_transcript_string_content() -> None:
-    data = {"choices": [{"message": {"content": "hello"}}]}
+    data = {"choices": [{"message": {"content": '{"transcription":"hello"}'}}]}
     assert parse_transcript(data) == "hello"
 
 
@@ -37,14 +37,34 @@ def test_parse_transcript_chunk_content() -> None:
             {
                 "message": {
                     "content": [
-                        {"type": "output_text", "text": "hello"},
-                        {"type": "output_text", "text": " world"},
+                        {"type": "output_text", "text": '{"transcription":"hello'},
+                        {"type": "output_text", "text": ' world"}'},
                     ]
                 }
             }
         ]
     }
     assert parse_transcript(data) == "hello world"
+
+
+def test_parse_transcript_invalid_json_returns_empty() -> None:
+    data = {"choices": [{"message": {"content": "not json"}}]}
+    assert parse_transcript(data) == ""
+
+
+def test_parse_transcript_json_without_transcription_returns_empty() -> None:
+    data = {"choices": [{"message": {"content": '{"foo":"bar"}'}}]}
+    assert parse_transcript(data) == ""
+
+
+def test_parse_transcript_json_non_string_transcription_returns_empty() -> None:
+    data = {"choices": [{"message": {"content": '{"transcription":123}'}}]}
+    assert parse_transcript(data) == ""
+
+
+def test_parse_transcript_json_null_transcription_returns_empty() -> None:
+    data = {"choices": [{"message": {"content": '{"transcription":null}'}}]}
+    assert parse_transcript(data) == ""
 
 
 def test_parse_transcript_invalid_shape() -> None:

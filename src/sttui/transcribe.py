@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
+from typing import Any, Protocol
 
 import requests
 
@@ -12,6 +14,12 @@ from sttui.errors import TranscriptionError
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 INVALID_API_KEY_MSG = "invalid api key. Run `sttui auth` to update it"
+
+
+class _ResponseLike(Protocol):
+    status_code: int
+
+    def json(self) -> Any: ...
 
 
 def encode_audio_base64(audio_path: Path) -> str:
@@ -27,15 +35,18 @@ def build_payload(*, model: str, prompt: str, audio_b64: str) -> dict:
         "model": model,
         "messages": [
             {
+                "role": "system",
+                "content": prompt,
+            },
+            {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": prompt},
                     {
                         "type": "input_audio",
                         "input_audio": {"data": audio_b64, "format": "wav"},
                     },
                 ],
-            }
+            },
         ],
     }
 
@@ -49,24 +60,36 @@ def parse_transcript(data: dict) -> str:
         raise TranscriptionError("malformed API response")
 
     content = message.get("content")
-    if isinstance(content, str) and content.strip():
-        return content
+    raw_text = ""
 
-    if isinstance(content, list):
+    if isinstance(content, str):
+        raw_text = content
+    elif isinstance(content, list):
         chunks: list[str] = []
         for item in content:
             if isinstance(item, dict):
                 text = item.get("text")
                 if isinstance(text, str):
                     chunks.append(text)
-        joined = "".join(chunks)
-        if joined.strip():
-            return joined
+        raw_text = "".join(chunks)
+    else:
+        raise TranscriptionError("malformed API response")
 
-    raise TranscriptionError("malformed API response")
+    try:
+        parsed = json.loads(raw_text)
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(parsed, dict):
+        return ""
+    transcription = parsed.get("transcription")
+    if transcription is None:
+        return ""
+    if not isinstance(transcription, str):
+        return ""
+    return transcription
 
 
-def _extract_api_error_detail(resp: object) -> str:
+def _extract_api_error_detail(resp: _ResponseLike) -> str:
     try:
         body = resp.json()
     except ValueError:
@@ -82,7 +105,7 @@ def _extract_api_error_detail(resp: object) -> str:
     return msg
 
 
-def _raise_api_error(resp: object) -> None:
+def _raise_api_error(resp: _ResponseLike) -> None:
     status_code = int(getattr(resp, "status_code", 0))
     detail = _extract_api_error_detail(resp)
     detail_lc = detail.lower()
