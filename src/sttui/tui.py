@@ -8,15 +8,14 @@ from typing import Literal
 
 from rich.style import Style
 from rich.text import Text
-
-from textual.content import Content
-from textual.app import App, ComposeResult
 from textual import events
+from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.css.query import NoMatches
 from textual.containers import Vertical, VerticalScroll
+from textual.content import Content
+from textual.css.query import NoMatches
 from textual.message import Message
-from textual.reactive import reactive
+from textual.timer import Timer
 from textual.widgets import (
     ContentSwitcher,
     DataTable,
@@ -25,7 +24,6 @@ from textual.widgets import (
     RadioSet,
     Static,
 )
-from textual.timer import Timer
 
 from sttui.clipboard import copy_text
 from sttui.config import RuntimeSettings
@@ -839,7 +837,7 @@ class SttuiApp(App[None]):
         if malformed_json:
             shown_answer = model_answer.strip() or "<empty>"
             self._set_notification(
-                f"Model returned malformed JSON; using empty transcription. Answer: {shown_answer}",
+                f"Model returned malformed JSON:\n {shown_answer}",
                 severity="warning",
                 timeout=4.0,
             )
