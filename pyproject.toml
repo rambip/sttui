@@ -12,6 +12,7 @@ dependencies = [
   "sounddevice>=0.4.7",
   "textual>=0.79.0",
   "pytest>=8.0.0",
+  "numpy>=2.4.3",
 ]
 
 [project.scripts]

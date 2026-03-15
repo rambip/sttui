@@ -8,6 +8,7 @@ import time
 from typing import Any
 import wave
 
+import numpy as np
 import sounddevice as sd
 
 from sttui.errors import RecordingError
@@ -76,6 +77,7 @@ class RecorderSession:
         self._channels = 1
         self._sample_width = 2
         self._frames_per_chunk = 1024
+        self._last_power: float = 0.0
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -119,6 +121,10 @@ class RecorderSession:
                         data, overflowed = stream.read(self._frames_per_chunk)
                         if overflowed:
                             continue
+                        audio_data = np.frombuffer(data, dtype=np.int16)
+                        self._last_power = float(
+                            np.sqrt(np.mean(audio_data.astype(np.float32) ** 2))
+                        )
                         wav_file.writeframes(data)
         except Exception as exc:
             self._error = exc
@@ -150,3 +156,7 @@ class RecorderSession:
     @property
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
+    @property
+    def current_power(self) -> float:
+        return self._last_power
