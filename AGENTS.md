@@ -52,42 +52,66 @@ class SettingsPanel(Static):
         def __init__(self, model: str) -> None:
             self.model = model
             super().__init__()
-
-    is_open = reactive(False, recompose=True)
 ```
 
 Why this helps:
 
 - Keeps `App` orchestration simple.
-- Encapsulates reactive state + keyboard behavior.
+- Encapsulates state + keyboard behavior.
 - Sends typed messages to parent for state sync.
 
-### 2) Reactive + Recompose for Mode Switches
+### 2) CRITICAL: `recompose=True` Destroys ContentSwitcher State
 
-For "summary view" vs "interactive menu" in the same area, use a reactive flag with `recompose=True`.
+**Never use `recompose=True` on a reactive that changes while a `ContentSwitcher` is
+open.** Recompose tears down and recreates all child widgets, including the
+`ContentSwitcher` itself, which resets to its `initial=` pane — silently undoing
+any `.current` assignment you made just before.
 
-```python
-is_open = reactive(False, recompose=True)
-
-def compose(self) -> ComposeResult:
-    if not self.is_open:
-        yield Static("Settings: ...")
-        return
-    yield SettingsMenu(...)
-```
-
-### 3) Focus After Recompose
-
-When UI is rebuilt (`recompose=True`), focus can be lost. Use `call_after_refresh`.
+**Minimal reproducer:**
 
 ```python
-def set_open(self, open_state: bool) -> None:
-    self.is_open = open_state
-    if open_state:
-        self.call_after_refresh(self.focus_first_control)
+class BrokenPanel(Static):
+    current_tab = reactive("a", recompose=True)   # BUG
+
+    def compose(self) -> ComposeResult:
+        with ContentSwitcher(initial="a"):         # always resets to "a"
+            yield Static("Pane A", id="a")
+            yield Static("Pane B", id="b")
+
+    def show_b(self) -> None:
+        self.current_tab = "b"                    # triggers recompose...
+        self.query_one(ContentSwitcher).current = "b"  # ...set on old widget,
+                                                       # then overwritten by recompose
 ```
 
-Also re-focus after async updates that trigger recompose (e.g., after loading models/devices).
+After `show_b()`, the widget shows Pane A, not Pane B.
+
+**Fix: don't recompose. Populate children imperatively, switch via `.current`.**
+
+```python
+class FixedPanel(Static):
+    def compose(self) -> ComposeResult:
+        with ContentSwitcher(initial="a"):
+            yield Static("Pane A", id="a")
+            yield Static("Pane B", id="b")   # always composed, never rebuilt
+
+    def show_b(self) -> None:
+        self.query_one(ContentSwitcher).current = "b"  # direct, no recompose
+```
+
+For dynamic children (e.g. radio buttons loaded async), use
+`widget.remove_children()` + `widget.mount(...)` instead of recompose.
+
+### 3) Focus After ContentSwitcher Switch
+
+After calling `.current = "..."`, focus the primary control with
+`call_after_refresh` to let the layout settle first.
+
+```python
+def show_b(self) -> None:
+    self.query_one(ContentSwitcher).current = "b"
+    self.call_after_refresh(lambda: self.query_one("#b").focus())
+```
 
 ### 4) Key Ownership with `inherit_bindings=False`
 
@@ -104,25 +128,29 @@ class SettingsRadioSet(RadioSet, inherit_bindings=False):
 
 Use this when you want deterministic keyboard routing and no inherited surprises.
 
-### 5) Custom Tabs When Built-in Tabs Conflict
+### 5) Use ContentSwitcher for Multi-Pane Settings
 
-If `TabbedContent` focus/binding behavior conflicts with nested controls, keep tabs as simple reactive state.
+Use `ContentSwitcher` with one fixed pane per view. Switch by setting `.current`
+directly. This avoids all recompose issues and keeps each pane's widget state
+intact (scroll position, focus, etc.) between visits.
 
 ```python
-active_tab = reactive("audio", recompose=True)
-
-def action_next_tab(self) -> None:
-    self.active_tab = "models" if self.active_tab == "audio" else "audio"
+with ContentSwitcher(initial="summary"):
+    yield DataTable(id="summary")
+    with Vertical(id="audio"):
+        yield SettingsRadioSet(id="audio_radio")
+    with Vertical(id="models"):
+        yield SettingsRadioSet(id="model_radio")
 ```
 
-Then conditionally render one pane at a time and focus its primary control.
+Populate radio buttons once via `mount()` when data arrives; re-populate on
+subsequent opens with `remove_children()` + `mount()`.
 
 ### 6) Navigation Design Pattern Used Here
 
-- `left/right` (or `h/l`) switch settings category (tab).
 - `up/down` (or `k/j`) move inside the active radio list.
 - `enter/space` select.
-- `escape` closes settings.
+- `escape` closes settings, returns focus to the summary DataTable.
 - `q` closes settings first, quits app only when settings are already closed.
 
 This keeps keyboard flows predictable in terminal-first UX.
