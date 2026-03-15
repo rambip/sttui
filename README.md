@@ -33,6 +33,7 @@ sttui auth
   <summary>Storage of your key</summary>
 
   Your key will be stored inside ~/.config/sttui/auth.json
+  
   Make sure you don't commit this file !
 </details>
 
