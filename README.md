@@ -62,6 +62,8 @@ Return a transcription of the user audio as json. If the user request is empty, 
 max_seconds = 600
 ```
 
+⚠️ Make sure that the prompt asks the model to answer in this json format, it's the one expected by `sttui`
+
 # Commands
 
 ```bash
