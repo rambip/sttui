@@ -51,7 +51,7 @@ def build_payload(*, model: str, prompt: str, audio_b64: str) -> dict:
     }
 
 
-def parse_transcript(data: dict) -> str:
+def _parse_transcript_with_meta(data: dict) -> tuple[str, bool, str]:
     choices = data.get("choices")
     if not isinstance(choices, list) or not choices:
         raise TranscriptionError("malformed API response")
@@ -75,18 +75,43 @@ def parse_transcript(data: dict) -> str:
     else:
         raise TranscriptionError("malformed API response")
 
+    json_text = _extract_json_text(raw_text)
     try:
-        parsed = json.loads(raw_text)
+        parsed = json.loads(json_text)
     except json.JSONDecodeError:
-        return ""
+        return "", True, raw_text
     if not isinstance(parsed, dict):
-        return ""
+        return "", False, raw_text
     transcription = parsed.get("transcription")
     if transcription is None:
-        return ""
+        return "", False, raw_text
     if not isinstance(transcription, str):
-        return ""
-    return transcription
+        return "", False, raw_text
+    return transcription, False, raw_text
+
+
+def _extract_json_text(raw_text: str) -> str:
+    stripped = raw_text.strip()
+    if not (stripped.startswith("```") and stripped.endswith("```")):
+        return raw_text
+
+    lines = stripped.splitlines()
+    if len(lines) < 2:
+        return raw_text
+
+    first = lines[0].strip()
+    last = lines[-1].strip()
+    if last != "```":
+        return raw_text
+
+    if first == "```" or first.startswith("```"):
+        return "\n".join(lines[1:-1])
+    return raw_text
+
+
+def parse_transcript(data: dict) -> str:
+    transcript, _, _ = _parse_transcript_with_meta(data)
+    return transcript
 
 
 def _extract_api_error_detail(resp: _ResponseLike) -> str:
@@ -174,7 +199,7 @@ def transcribe_audio(
     prompt: str,
     audio_path: Path,
     timeout_seconds: int = 120,
-) -> str:
+) -> tuple[str, bool, str]:
     payload = build_payload(
         model=model,
         prompt=prompt,
@@ -203,4 +228,4 @@ def transcribe_audio(
         raise TranscriptionError("malformed API response") from exc
     if not isinstance(data, dict):
         raise TranscriptionError("malformed API response")
-    return parse_transcript(data)
+    return _parse_transcript_with_meta(data)

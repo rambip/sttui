@@ -67,6 +67,13 @@ def test_parse_transcript_json_null_transcription_returns_empty() -> None:
     assert parse_transcript(data) == ""
 
 
+def test_parse_transcript_markdown_fenced_json() -> None:
+    data = {
+        "choices": [{"message": {"content": '```json\n{"transcription":"hello"}\n```'}}]
+    }
+    assert parse_transcript(data) == "hello"
+
+
 def test_parse_transcript_invalid_shape() -> None:
     with pytest.raises(TranscriptionError):
         parse_transcript({"choices": []})

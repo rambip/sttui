@@ -423,9 +423,18 @@ class SttuiApp(App[None]):
         padding: 0 1;
     }
 
+    Screen.settings-open #settings_widget {
+        min-height: 12;
+        height: 3fr;
+    }
+
     #spacer {
         height: 1fr;
         min-height: 0;
+    }
+
+    Screen.settings-open #spacer {
+        height: 0;
     }
 
     Screen.compact #spacer {
@@ -755,6 +764,7 @@ class SttuiApp(App[None]):
     ) -> None:
         """Load devices and models when the user first opens the settings detail."""
         self.settings_open = True
+        self.screen.add_class("settings-open")
         panel = self.query_one(SettingsPanel)
 
         panel.set_audio_devices([], default_index=None)
@@ -789,6 +799,7 @@ class SttuiApp(App[None]):
         if not self.settings_open:
             return
         self.settings_open = False
+        self.screen.remove_class("settings-open")
         panel = self.query_one(SettingsPanel)
         panel.set_open(False)
 
@@ -815,7 +826,7 @@ class SttuiApp(App[None]):
         assert self.audio_path is not None
         audio_path = self.audio_path
         try:
-            transcript = await asyncio.to_thread(
+            transcript, malformed_json, model_answer = await asyncio.to_thread(
                 transcribe_audio,
                 api_key=self.settings.api_key,
                 model=self.current_model,
@@ -825,6 +836,13 @@ class SttuiApp(App[None]):
         except TranscriptionError as exc:
             self._set_error(str(exc))
             return
+        if malformed_json:
+            shown_answer = model_answer.strip() or "<empty>"
+            self._set_notification(
+                f"Model returned malformed JSON; using empty transcription. Answer: {shown_answer}",
+                severity="warning",
+                timeout=4.0,
+            )
         self.transcript = transcript
         self.transcripts.append(transcript)
         self.transcript_path = write_transcript(audio_path, transcript)
