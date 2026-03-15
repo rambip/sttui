@@ -42,6 +42,8 @@ class StatusFooter(Static):
         height: 1;
         background: $surface;
         color: $text;
+        content-align: center middle;
+        text-align: center;
     }
     """
 
@@ -86,6 +88,18 @@ class SettingsRadioSet(RadioSet, inherit_bindings=False):
     ]
 
 
+class SettingsDataTable(DataTable, inherit_bindings=False):
+    """DataTable with explicit navigation/select bindings for settings."""
+
+    BINDINGS = [
+        Binding("up,k", "cursor_up", "Up", show=False),
+        Binding("down,j", "cursor_down", "Down", show=False),
+        Binding("left,h", "cursor_left", "Left", show=False),
+        Binding("right,l", "cursor_right", "Right", show=False),
+        Binding("tab", "select_cursor", "Select", show=False),
+    ]
+
+
 class SettingsPanel(Static):
     """Settings summary and selector panel.
 
@@ -127,7 +141,7 @@ class SettingsPanel(Static):
     def compose(self) -> ComposeResult:
         with ContentSwitcher(initial="settings_summary_pane"):
             with Vertical(id="settings_summary_pane"):
-                yield DataTable(id="settings_summary")
+                yield SettingsDataTable(id="settings_summary")
                 yield Static("", id="settings_summary_spacer")
             with Vertical(id="settings_audio"):
                 yield Static("[ Audio ]", id="settings_audio_label")
@@ -151,8 +165,8 @@ class SettingsPanel(Static):
         try:
             table = self.query_one("#settings_summary", DataTable)
             table.clear(columns=True)
-            table.add_columns("Setting", "Value")
-            table.add_row("Audio", Text(device, style="silver"))
+            table.add_columns("Setting", "Value (press Tab to change)")
+            table.add_row("Device", Text(device, style="silver"))
             table.add_row("Model", Text(self.selected_model, style="silver"))
         except NoMatches:
             pass
@@ -609,7 +623,7 @@ class SttuiApp(App[None]):
             widget.update("Transcript result:")
         elif self.status == "error":
             widget.add_class("state-error")
-            widget.update("Error")
+            widget.update(f"Error: {self.error_message or 'An error occurred'}")
 
     def _render_content_box(self) -> None:
         """Render primary content area separate from status banner."""
@@ -619,16 +633,27 @@ class SttuiApp(App[None]):
         if self.status == "error":
             content_box.styles.display = "none"
             idle_msg.styles.display = "none"
+            text = self.query_one("#content_text", Static)
+            text.update("")
         elif self.transcripts:
             content_box.styles.display = "block"
             idle_msg.styles.display = "none"
             text = self.query_one("#content_text", Static)
-            text.update("\n\n".join(self.transcripts))
+            text.update(self._format_transcripts_for_display())
             content_box.scroll_end(y_axis=True)
         else:
             content_box.styles.display = "none"
             idle_msg.styles.display = "block"
             idle_msg.update("Press Space to start recording")
+
+    def _format_transcripts_for_display(self) -> str:
+        blocks: list[str] = []
+        for transcript in self.transcripts:
+            normalized = transcript.replace("\r\n", "\n").replace("\r", "\n")
+            lines = normalized.split("\n")
+            prefixed_lines = [f"| {line}" if line else "|" for line in lines]
+            blocks.append("\n".join(prefixed_lines))
+        return "\n\n".join(blocks)
 
     def _render_audio_meta(self) -> None:
         """Render saved path info below the main box."""
@@ -798,7 +823,7 @@ class SttuiApp(App[None]):
                 audio_path=audio_path,
             )
         except TranscriptionError as exc:
-            self._set_error(f"{exc}, audio saved in {audio_path}")
+            self._set_error(str(exc))
             return
         self.transcript = transcript
         self.transcripts.append(transcript)

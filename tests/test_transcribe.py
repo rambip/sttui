@@ -4,7 +4,12 @@ import pytest
 import requests
 
 from sttui.errors import TranscriptionError
-from sttui.transcribe import build_payload, list_audio_models, parse_transcript
+from sttui.transcribe import (
+    INVALID_API_KEY_MSG,
+    build_payload,
+    list_audio_models,
+    parse_transcript,
+)
 
 
 def test_build_payload_structure() -> None:
@@ -96,6 +101,44 @@ def test_list_audio_models_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(requests, "get", fake_get)
 
     with pytest.raises(TranscriptionError, match="api error: HTTP 503"):
+        list_audio_models("or-test")
+
+
+def test_list_audio_models_invalid_api_key_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        status_code = 401
+
+        @staticmethod
+        def json() -> dict:
+            return {"error": {"message": "Unauthorized"}}
+
+    def fake_get(*args: object, **kwargs: object) -> Response:
+        return Response()
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    with pytest.raises(TranscriptionError, match="invalid api key"):
+        list_audio_models("or-test")
+
+
+def test_list_audio_models_invalid_api_key_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        status_code = 400
+
+        @staticmethod
+        def json() -> dict:
+            return {"error": {"message": "Invalid API key"}}
+
+    def fake_get(*args: object, **kwargs: object) -> Response:
+        return Response()
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    with pytest.raises(TranscriptionError, match=INVALID_API_KEY_MSG):
         list_audio_models("or-test")
 
 

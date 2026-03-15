@@ -11,6 +11,7 @@ from sttui.errors import TranscriptionError
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
+INVALID_API_KEY_MSG = "invalid api key. Run `sttui auth` to update it"
 
 
 def encode_audio_base64(audio_path: Path) -> str:
@@ -65,6 +66,36 @@ def parse_transcript(data: dict) -> str:
     raise TranscriptionError("malformed API response")
 
 
+def _extract_api_error_detail(resp: object) -> str:
+    try:
+        body = resp.json()
+    except ValueError:
+        return ""
+    if not isinstance(body, dict):
+        return ""
+    err = body.get("error")
+    if not isinstance(err, dict):
+        return ""
+    msg = err.get("message")
+    if not isinstance(msg, str):
+        return ""
+    return msg
+
+
+def _raise_api_error(resp: object) -> None:
+    status_code = int(getattr(resp, "status_code", 0))
+    detail = _extract_api_error_detail(resp)
+    detail_lc = detail.lower()
+
+    if status_code in {401, 403}:
+        raise TranscriptionError(INVALID_API_KEY_MSG)
+    if "invalid api key" in detail_lc or "unauthorized" in detail_lc:
+        raise TranscriptionError(INVALID_API_KEY_MSG)
+    if detail:
+        raise TranscriptionError(f"api error: {detail}")
+    raise TranscriptionError(f"api error: HTTP {status_code}")
+
+
 def list_audio_models(api_key: str, timeout_seconds: int = 20) -> list[str]:
     """Return OpenRouter model ids that accept audio input."""
     headers = {
@@ -79,7 +110,7 @@ def list_audio_models(api_key: str, timeout_seconds: int = 20) -> list[str]:
         raise TranscriptionError("network error") from exc
 
     if resp.status_code < 200 or resp.status_code >= 300:
-        raise TranscriptionError(f"api error: HTTP {resp.status_code}")
+        _raise_api_error(resp)
 
     try:
         payload = resp.json()
@@ -141,20 +172,7 @@ def transcribe_audio(
         raise TranscriptionError("network error") from exc
 
     if resp.status_code < 200 or resp.status_code >= 300:
-        detail = ""
-        try:
-            body = resp.json()
-            if isinstance(body, dict):
-                err = body.get("error")
-                if isinstance(err, dict):
-                    msg = err.get("message")
-                    if isinstance(msg, str):
-                        detail = msg
-        except ValueError:
-            detail = ""
-        if detail:
-            raise TranscriptionError(f"api error: {detail}")
-        raise TranscriptionError(f"api error: HTTP {resp.status_code}")
+        _raise_api_error(resp)
 
     try:
         data = resp.json()

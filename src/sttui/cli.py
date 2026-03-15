@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 from sttui.config import (
+    DEFAULT_AUTH_PATH,
     DEFAULT_CONFIG_PATH,
     DEFAULT_RECORDINGS_DIR,
     load_runtime_settings,
@@ -21,6 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Linux-first speech-to-text terminal UI.",
         epilog=(
             f"config path: {DEFAULT_CONFIG_PATH} | "
+            f"auth path: {DEFAULT_AUTH_PATH} | "
             f"default recordings: {DEFAULT_RECORDINGS_DIR}"
         ),
     )
@@ -52,12 +55,52 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_CONFIG_PATH,
         help=f"Path to config file (default: {DEFAULT_CONFIG_PATH}).",
     )
+
+    subparsers = parser.add_subparsers(dest="command", required=False)
+
+    subparsers.add_parser(
+        "auth",
+        help="Register your OpenRouter API key",
+    )
+
+    subparsers.add_parser(
+        "run",
+        help="Run the TUI (default)",
+    )
+
+    parser.set_defaults(command="run")
     return parser
+
+
+def cmd_auth() -> int:
+    print("Visit openrouter to create an API key:")
+    print("https://openrouter.ai/settings/keys\n")
+    print("Then, paste your API key below and press Enter.\n")
+    api_key = input("API key: ").strip()
+
+    if not api_key:
+        print("No API key provided.", file=sys.stderr)
+        return 1
+
+    auth_path = DEFAULT_AUTH_PATH
+    auth_path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = {"openrouter": {"api_key": api_key}}
+    with auth_path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+    print(f"\nAPI key saved to {auth_path}")
+    print("You can now start sttui!")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "auth":
+        return cmd_auth()
+
     try:
         settings = load_runtime_settings(
             config_path=args.config,

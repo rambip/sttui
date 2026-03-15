@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import json
 import os
 import tomllib
 
@@ -13,6 +14,7 @@ DEFAULT_MODEL = "google/gemini-2.5-flash"
 DEFAULT_PROMPT = "Please transcribe this audio file."
 DEFAULT_MAX_SECONDS = 600
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "sttui" / "config.toml"
+DEFAULT_AUTH_PATH = Path.home() / ".config" / "sttui" / "auth.json"
 DEFAULT_RECORDINGS_DIR = Path.home() / ".local" / "share" / "sttui" / "recordings"
 
 
@@ -31,14 +33,24 @@ class RuntimeSettings:
 def _config_hint(path: Path) -> str:
     return (
         "config missing or invalid. expected keys: "
-        "openrouter.api_key, transcription.model, transcription.prompt, transcription.max_seconds "
+        "transcription.model, transcription.prompt, transcription.max_seconds "
         f"in {path}"
     )
 
 
+def _get_default_config() -> str:
+    import sttui
+
+    pkg_dir = Path(sttui.__file__).parent
+    default_path = pkg_dir / "default_config.toml"
+    return default_path.read_text(encoding="utf-8")
+
+
 def load_config_file(path: Path = DEFAULT_CONFIG_PATH) -> dict:
     if not path.exists():
-        raise ConfigError(_config_hint(path))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        default_content = _get_default_config()
+        path.write_text(default_content, encoding="utf-8")
     try:
         with path.open("rb") as f:
             data = tomllib.load(f)
@@ -47,6 +59,28 @@ def load_config_file(path: Path = DEFAULT_CONFIG_PATH) -> dict:
     if not isinstance(data, dict):
         raise ConfigError(_config_hint(path))
     return data
+
+
+def load_auth_file(path: Path = DEFAULT_AUTH_PATH) -> dict:
+    if not path.exists():
+        raise ConfigError("no api key registered. Run `sttui auth` to setup")
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        raise ConfigError("no api key registered. Run `sttui auth` to setup") from exc
+    if not isinstance(data, dict):
+        raise ConfigError("no api key registered. Run `sttui auth` to setup")
+    return data
+
+
+def load_api_key(*, auth_path: Path = DEFAULT_AUTH_PATH) -> str:
+    auth = load_auth_file(auth_path)
+    openrouter = _as_section(auth.get("openrouter"))
+    api_key = str(openrouter.get("api_key", "")).strip()
+    if not api_key:
+        raise ConfigError("no api key registered. Run `sttui auth` to setup")
+    return api_key
 
 
 def _int_or_default(value: object, default: int) -> int:
@@ -82,19 +116,17 @@ def _as_section(value: object) -> dict:
 def load_runtime_settings(
     *,
     config_path: Path = DEFAULT_CONFIG_PATH,
+    auth_path: Path = DEFAULT_AUTH_PATH,
     model_override: str | None = None,
     max_seconds_override: int | None = None,
     stdout_mode: bool = False,
     debug: bool = False,
 ) -> RuntimeSettings:
     cfg = load_config_file(config_path)
-    openrouter = _as_section(cfg.get("openrouter"))
     transcription = _as_section(cfg.get("transcription"))
     audio = _as_section(cfg.get("audio"))
 
-    api_key = str(openrouter.get("api_key", "")).strip()
-    if not api_key:
-        raise ConfigError(_config_hint(config_path))
+    api_key = load_api_key(auth_path=auth_path)
 
     model = str(transcription.get("model") or DEFAULT_MODEL)
     prompt = str(transcription.get("prompt") or DEFAULT_PROMPT)
