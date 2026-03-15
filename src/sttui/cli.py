@@ -76,9 +76,10 @@ def main(argv: list[str] | None = None) -> int:
     if app.last_error_for_stderr:
         print(f"Error: {app.last_error_for_stderr}", file=sys.stderr)
 
-    if app.emit_stdout and app.transcript:
-        sys.stdout.write(app.transcript)
-        if not app.transcript.endswith("\n"):
+    if app.emit_stdout and app.transcripts:
+        output = "\n\n".join(app.transcripts)
+        sys.stdout.write(output)
+        if not output.endswith("\n"):
             sys.stdout.write("\n")
 
     return app.exit_code
