@@ -10,6 +10,7 @@ from rich.text import Text
 
 from textual.content import Content
 from textual.app import App, ComposeResult
+from textual import events
 from textual.binding import Binding
 from textual.css.query import NoMatches
 from textual.containers import Horizontal, Vertical
@@ -47,7 +48,7 @@ class SettingsPanel(Static):
     """Settings summary and selector panel.
 
     ContentSwitcher has three fixed panes:
-      - "settings_summary"  : 2-row DataTable (always composed, never recomposed)
+      - "settings_summary_pane": 2-row DataTable (always composed, never recomposed)
       - "settings_audio"    : audio device radio list
       - "settings_models"   : model radio list
 
@@ -82,8 +83,10 @@ class SettingsPanel(Static):
     # ------------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
-        with ContentSwitcher(initial="settings_summary"):
-            yield DataTable(id="settings_summary")
+        with ContentSwitcher(initial="settings_summary_pane"):
+            with Vertical(id="settings_summary_pane"):
+                yield DataTable(id="settings_summary")
+                yield Static("", id="settings_summary_spacer")
             with Vertical(id="settings_audio"):
                 yield Static("[ Audio ]", id="settings_audio_label")
                 with SettingsRadioSet(id="audio_radio"):
@@ -131,7 +134,7 @@ class SettingsPanel(Static):
     def set_open(self, open_state: bool) -> None:
         self._is_open = open_state
         if not open_state:
-            self.query_one(ContentSwitcher).current = "settings_summary"
+            self.query_one(ContentSwitcher).current = "settings_summary_pane"
             self._update_summary_table()
             self.call_after_refresh(
                 lambda: self.query_one("#settings_summary", DataTable).focus()
@@ -293,20 +296,32 @@ class SttuiApp(App[None]):
     #panel {
         width: 88;
         max-width: 100%;
+        height: 100%;
         border: round green;
         padding: 1 2;
     }
 
     #state_line {
         height: 1;
-        margin-bottom: 1;
         padding: 0 1;
         color: black;
-        background: rgb(180, 180, 180);
+    }
+
+    #content_box {
+        height: 50%;
+        padding: 0 1;
+        margin-top: 1;
+        border: round gray;
+        overflow-y: auto;
+        content-align: center middle;
+    }
+
+    Screen.compact #content_box {
+        margin-top: 0;
     }
 
     #state_line.state-idle {
-        background: rgb(180, 180, 180);
+        color: rgb(120, 120, 120);
     }
 
     #state_line.state-recording {
@@ -326,22 +341,28 @@ class SttuiApp(App[None]):
     }
 
     #content_box {
-        height: 12;
-        padding: 1 1;
-        margin-bottom: 1;
+        height: 50%;
+        padding: 0 1;
         border: round gray;
         overflow-y: auto;
+        content-align: center middle;
     }
 
     #hint {
         color: rgb(190, 210, 230);
-        margin-top: 0;
+        height: auto;
+        min-height: 0;
+    }
+
+    #audio_meta {
+        color: rgb(180, 180, 180);
+        height: auto;
+        min-height: 0;
     }
 
     #quick_actions {
         layout: horizontal;
         height: auto;
-        margin-bottom: 1;
     }
 
     .action_box {
@@ -352,28 +373,41 @@ class SttuiApp(App[None]):
         color: rgb(210, 230, 250);
     }
 
-    #audio_meta {
-        color: rgb(180, 180, 180);
-        margin-bottom: 1;
-    }
-
     #settings_widget {
         min-height: 5;
-        height: auto;
-        margin-top: 1;
+        height: 1fr;
         padding: 0 1;
+    }
+
+    #spacer {
+        height: 1fr;
+        min-height: 0;
+    }
+
+    Screen.compact #spacer {
+        height: 0;
+    }
+
+    #settings_summary_spacer {
+        min-height: 0;
+        height: 1fr;
+        max-height: 1;
     }
 
     #settings_summary {
         height: 3;
     }
 
+    #settings_summary_pane {
+        height: 1fr;
+    }
+
     ContentSwitcher {
-        height: auto;
+        height: 1fr;
     }
 
     DataTable {
-        margin: 1 0;
+        margin: 0;
     }
 
     #settings_hint {
@@ -388,6 +422,14 @@ class SttuiApp(App[None]):
     #settings_models_label {
         height: 1;
         margin-bottom: 1;
+    }
+
+    #settings_audio {
+        height: 1fr;
+    }
+
+    #settings_models {
+        height: 1fr;
     }
 
     #audio_radio {
@@ -471,6 +513,7 @@ class SttuiApp(App[None]):
                     yield Static("C: copy transcript", classes="action_box")
                     yield Static("U/Backspace: undo last", classes="action_box")
                 yield Static("", id="hint")
+                yield Static("", id="spacer")
                 yield SettingsPanel(
                     model=self.current_model,
                     input_device=self.current_input_device,
@@ -479,6 +522,12 @@ class SttuiApp(App[None]):
     def on_mount(self) -> None:
         self.set_interval(0.12, self._tick)
         self._render_all()
+
+    def on_resize(self, event: events.Resize) -> None:
+        if event.size.height < 25:
+            self.screen.add_class("compact")
+        else:
+            self.screen.remove_class("compact")
 
     def _tick(self) -> None:
         if self.status in {"recording", "transcribing"}:
@@ -504,7 +553,9 @@ class SttuiApp(App[None]):
         )
         if self.status == "idle":
             widget.add_class("state-idle")
-            widget.update("Idle")
+            widget.update(
+                Text("record yourself, and let the AI transcribe.", style="italic dim")
+            )
         elif self.status == "recording":
             widget.add_class("state-recording")
             power = self.session.current_power if self.session else 0.0
@@ -541,7 +592,9 @@ class SttuiApp(App[None]):
         elif self.transcripts:
             content = "\n\n".join(self.transcripts)
         else:
-            content = "\nPress Space to start recording"
+            content = Text(
+                "Press Space to start recording", style="dim", justify="center"
+            )
         self.query_one("#content_box", Static).update(content)
 
     def _render_quick_actions(self) -> None:
