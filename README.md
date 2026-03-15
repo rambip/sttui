@@ -1,93 +1,71 @@
-# sttui
+<div align="center">
+  <img src="logo.png" alt="sttui logo" width="300" />
 
-No browser. No Web UI. Just fast speech-to-text in your terminal.
+  # `sttui`: Speech To Text in your terminal
+  
+  **No browser. No Web UI. Fast speech-to-text with the best models**
 
-## Features
 
-- Records audio directly from your microphone via `sounddevice`.
-- Shows an interactive Textual TUI with record/transcribe states.
-- Sends WAV audio to OpenRouter as `input_audio`.
-- Saves `.wav` and `.txt` outputs in a timestamped naming scheme.
-- Supports `--stdout` mode for script-friendly output.
+  [![PyPI version](https://badge.fury.io/py/sttui.svg)](https://badge.fury.io/py/sttui)
+</div>
 
-## Requirements
 
-- Linux audio input device and PortAudio runtime (for `sounddevice`)
-- Python 3.11+
-- OpenRouter API key
 
-## Install
+# Setup
 
-```bash
-# Recommended: isolated install for CLI tools
-pipx install sttui
-
-# Verify install
-sttui --help
+```
+pip install sttui
 ```
 
-Alternative with pip:
+(or if you have `uv` installed, `uvx sttui`)
 
-```bash
-python -m pip install --user sttui
-sttui --help
-```
+Then, you must have an account on [openrouter](enrouter.ai/), and get an API key.
 
-## Config
+When you first start the app, you will be prompted for it.
 
-Create `~/.config/sttui/config.toml`:
+<details>
+  <summary>Storage of your key</summary>
 
+  Your key will be stored inside ~/.config/sttui/config.toml
+  Make sure you don't commit this file !
+</details>
+
+# Config
+
+When you first start the app, a config file is created at:  `~/.config/sttui/config.toml`
+
+You can specify the default model (without the `openrouter` prefix), the prompt, and the maximum audio length.
 ```toml
-[openrouter]
-api_key = "or-..."
-
 [transcription]
 model = "google/gemini-2.5-flash"
 prompt = "Please transcribe this audio file."
 max_seconds = 600
 ```
 
-## Commands
+# Commands
 
 ```bash
-# Show CLI help
-uv run sttui --help
 
 # Start interactive dictation TUI
-uv run sttui
+sttui
+
+# Show CLI help
+sttui --help
 
 # TUI + write transcript to stdout on Enter
-uv run sttui --stdout
+sttui --stdout
 
 # Override model and recording cap for this run
-uv run sttui --model google/gemini-2.5-flash --max-seconds 120
+sttui --model google/gemini-2.5-flash --max-seconds 120
 
 # Use a custom config file
-uv run sttui --config ~/.config/sttui/config.toml
+sttui --config ~/.config/sttui/config.toml
 ```
 
-Keybindings:
+All recordings and transcripts are stored in `~/.local/share/sttui/recordings/`.
 
-- `space` / `r`: toggle record/stop
-- `s`: stop recording
-- `c`: copy transcript
-- `Enter`: new cycle (or stdout confirm in `--stdout` mode)
-- `q`: quit
+# Contributing
 
-CLI flags:
+This is a side-project of mine. I must admit there is mostly AI-generated code, but I try to review and ensure good practices.
 
-- `--stdout`
-- `--model <name>`
-- `--max-seconds <int>`
-- `--debug`
-- `--config <path>`
-
-By default, recordings are stored in `~/.local/share/sttui/recordings/`.
-
-## Development
-
-```bash
-uv sync
-uv run sttui --help
-uv run pytest
-```
+I don't have strong opinions about how this project should evolve. If you find it useful, feel free to contribute !
