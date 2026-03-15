@@ -161,11 +161,18 @@ Trap: Rich inline style parsing is stricter than Textual CSS.
 
 - In Textual CSS, `rgb(170, 170, 170)` is valid.
 - In `Text(..., style="...")`, prefer hex color literals (`#AAAAAA`) to avoid parse errors.
+- For complex styles (bold + rgb color), use `Style` object from `rich.style`.
 
 Example:
 
 ```python
+from rich.style import Style
+from rich.text import Text
+
 Text("[ Audio ]", style="bold black on #78B478")
+
+# For bold + rgb color, use Style object:
+Text("key", style=Style(bold=True, color="rgb(50,120,180)"))
 ```
 
 ### 8) Dynamic Height / Clipping Trap

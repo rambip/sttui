@@ -6,6 +6,7 @@ import asyncio
 from pathlib import Path
 from typing import Literal
 
+from rich.style import Style
 from rich.text import Text
 
 from textual.content import Content
@@ -13,7 +14,7 @@ from textual.app import App, ComposeResult
 from textual import events
 from textual.binding import Binding
 from textual.css.query import NoMatches
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import (
@@ -32,6 +33,47 @@ from sttui.errors import ClipboardError, RecordingError, TranscriptionError
 from sttui.recording import RecorderSession, list_input_devices
 from sttui.storage import next_audio_path, write_transcript
 from sttui.transcribe import list_audio_models, transcribe_audio
+
+
+class StatusFooter(Static):
+    DEFAULT_CSS = """
+    StatusFooter {
+        dock: bottom;
+        height: 1;
+        background: $surface;
+        color: $text;
+    }
+    """
+
+    BLUE_SHADES = [
+        "rgb(80, 100, 200)",
+        "rgb(100, 80, 180)",
+        "rgb(120, 70, 160)",
+    ]
+
+    def set_bindings(self, groups: list[list[tuple[str, str]]]) -> None:
+        desc_style = Style(color="#A0A0A0")
+        parts: list[Text] = []
+        for gi, group in enumerate(groups):
+            key_style = Style(
+                bold=True, color=self.BLUE_SHADES[gi % len(self.BLUE_SHADES)]
+            )
+            group_text = Text()
+            group_text.append("[ ", style=Style(color="#808080"))
+            bindings = Text()
+            bindings.append_text(
+                Text("  ").join(
+                    Text(f"{key}", style=key_style)
+                    + Text(":", style=Style(color="#808080"))
+                    + Text(desc, style=desc_style)
+                    for key, desc in group
+                )
+            )
+            group_text.append_text(bindings)
+            group_text.append(" ]", style=Style(color="#808080"))
+            parts.append(group_text)
+        result = Text("  ").join(parts)
+        self.update(result)
 
 
 class SettingsRadioSet(RadioSet, inherit_bindings=False):
@@ -309,11 +351,18 @@ class SttuiApp(App[None]):
 
     #content_box {
         height: 50%;
-        padding: 0 1;
-        margin-top: 1;
         border: round gray;
-        overflow-y: auto;
+    }
+
+    #content_text {
+        padding: 0 1;
+    }
+
+    #idle_message {
+        height: 50%;
+        border: round gray;
         content-align: center middle;
+        color: rgb(150, 150, 150);
     }
 
     Screen.compact #content_box {
@@ -348,29 +397,10 @@ class SttuiApp(App[None]):
         content-align: center middle;
     }
 
-    #hint {
-        color: rgb(190, 210, 230);
-        height: auto;
-        min-height: 0;
-    }
-
     #audio_meta {
         color: rgb(180, 180, 180);
         height: auto;
         min-height: 0;
-    }
-
-    #quick_actions {
-        layout: horizontal;
-        height: auto;
-    }
-
-    .action_box {
-        width: auto;
-        border: round rgb(120, 170, 220);
-        padding: 0 1;
-        margin-right: 1;
-        color: rgb(210, 230, 250);
     }
 
     #settings_widget {
@@ -465,7 +495,6 @@ class SttuiApp(App[None]):
         Binding("space", "toggle_record", "Record/Stop", show=True),
         Binding("s", "stop_record", "Stop", show=True),
         Binding("c", "copy_transcript", "Copy", show=True),
-        Binding("u", "undo_last_transcript", "Undo", show=True),
         Binding("backspace", "undo_last_transcript", "Undo", show=True),
         Binding("enter", "confirm_or_restart", "Enter", show=True),
         Binding("escape", "close_settings", "Close Settings", show=False),
@@ -506,18 +535,16 @@ class SttuiApp(App[None]):
         with Vertical(id="layout"):
             with Vertical(id="panel"):
                 yield Static("", id="state_line")
-                yield Static("", id="content_box")
+                with VerticalScroll(id="content_box"):
+                    yield Static("", id="content_text")
+                yield Static("", id="idle_message")
                 yield Static("", id="audio_meta")
-                with Horizontal(id="quick_actions"):
-                    yield Static("Space: keep recording", classes="action_box")
-                    yield Static("C: copy transcript", classes="action_box")
-                    yield Static("U/Backspace: undo last", classes="action_box")
-                yield Static("", id="hint")
                 yield Static("", id="spacer")
                 yield SettingsPanel(
                     model=self.current_model,
                     input_device=self.current_input_device,
                 )
+        yield StatusFooter("", id="footer")
 
     def on_mount(self) -> None:
         self.set_interval(0.12, self._tick)
@@ -538,7 +565,6 @@ class SttuiApp(App[None]):
         self._render_state_line()
         self._render_content_box()
         self._render_audio_meta()
-        self._render_quick_actions()
         self._render_hint()
 
     def _render_state_line(self) -> None:
@@ -587,38 +613,50 @@ class SttuiApp(App[None]):
 
     def _render_content_box(self) -> None:
         """Render primary content area separate from status banner."""
-        if self.status == "error":
-            content = self.error_message or ""
-        elif self.transcripts:
-            content = "\n\n".join(self.transcripts)
-        else:
-            content = Text(
-                "Press Space to start recording", style="dim", justify="center"
-            )
-        self.query_one("#content_box", Static).update(content)
+        content_box = self.query_one("#content_box", VerticalScroll)
+        idle_msg = self.query_one("#idle_message", Static)
 
-    def _render_quick_actions(self) -> None:
-        """Show action boxes only after at least one transcript exists."""
-        actions = self.query_one("#quick_actions", Horizontal)
-        actions.styles.display = "block" if self.transcripts else "none"
+        if self.status == "error":
+            content_box.styles.display = "none"
+            idle_msg.styles.display = "none"
+        elif self.transcripts:
+            content_box.styles.display = "block"
+            idle_msg.styles.display = "none"
+            text = self.query_one("#content_text", Static)
+            text.update("\n\n".join(self.transcripts))
+            content_box.scroll_end(y_axis=True)
+        else:
+            content_box.styles.display = "none"
+            idle_msg.styles.display = "block"
+            idle_msg.update("Press Space to start recording")
 
     def _render_audio_meta(self) -> None:
         """Render saved path info below the main box."""
-        lines: list[str] = []
-        if self.audio_path:
-            lines.append(f"Audio: {self.audio_path}")
-        if self.transcript_path:
-            lines.append(f"Transcript: {self.transcript_path}")
-        self.query_one("#audio_meta", Static).update("\n".join(lines))
+        content = f"Audio: {self.audio_path}" if self.audio_path else ""
+        self.query_one("#audio_meta", Static).update(content)
 
     def _render_hint(self) -> None:
+        footer = self.query_one("#footer", StatusFooter)
         if not self.transcripts:
-            hint = ""
-        elif self.status == "done" and self.settings.stdout_mode:
-            hint = "Press Enter to write transcript to stdout and exit, Q to quit"
-        else:
-            hint = "Press Enter to create a new recording, Q to quit"
-        self.query_one("#hint", Static).update(hint)
+            footer.update("")
+            footer.styles.display = "none"
+            return
+        footer.styles.display = "block"
+        enter_desc = (
+            "write to stdout and exit" if self.settings.stdout_mode else "new recording"
+        )
+        groups = [
+            [
+                ("Space", "keep recording"),
+                ("Backspace", "undo"),
+                ("C", "copy"),
+            ],
+            [
+                ("Enter", enter_desc),
+                ("Q", "quit"),
+            ],
+        ]
+        footer.set_bindings(groups)
 
     def _set_notification(
         self,
