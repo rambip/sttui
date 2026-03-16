@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from rich.style import Style
 from rich.text import Text
@@ -28,9 +28,10 @@ from textual.widgets import (
 from sttui.clipboard import copy_text
 from sttui.config import RuntimeSettings
 from sttui.errors import ClipboardError, RecordingError, TranscriptionError
-from sttui.recording import RecorderSession, list_input_devices
 from sttui.storage import next_audio_path, write_transcript
-from sttui.transcribe import list_audio_models, transcribe_audio
+
+if TYPE_CHECKING:
+    from sttui.recording import RecorderSession
 
 
 class StatusFooter(Static):
@@ -716,6 +717,10 @@ class SttuiApp(App[None]):
             self._start_recording()
 
     def _start_recording(self) -> None:
+        # Lazy import: recording stack pulls in sounddevice/numpy and is only
+        # needed when recording actually starts.
+        from sttui.recording import RecorderSession
+
         self._last_volume = 0.0
         self.transcript_path = None
         self.error_message = None
@@ -762,6 +767,11 @@ class SttuiApp(App[None]):
         self, message: SettingsPanel.PaneOpened
     ) -> None:
         """Load devices and models when the user first opens the settings detail."""
+        # Lazy imports: settings open is optional and these endpoints are
+        # expensive to import/initialize during initial TUI startup.
+        from sttui.recording import list_input_devices
+        from sttui.transcribe import list_audio_models
+
         self.settings_open = True
         self.screen.add_class("settings-open")
         panel = self.query_one(SettingsPanel)
@@ -822,6 +832,9 @@ class SttuiApp(App[None]):
         self.action_close_settings()
 
     async def _run_transcription(self) -> None:
+        # Lazy import: requests/OpenRouter client is only needed after stop.
+        from sttui.transcribe import transcribe_audio
+
         assert self.audio_path is not None
         audio_path = self.audio_path
         try:

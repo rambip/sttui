@@ -8,6 +8,7 @@ license = "MIT"
 authors = [{ name = "sttui contributors" }]
 dependencies = [
   "clipboard>=0.0.4",
+  "notify-py>=0.3.43",
   "requests>=2.31.0",
   "sounddevice>=0.4.7",
   "textual>=0.79.0",
