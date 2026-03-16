@@ -71,6 +71,9 @@ max_seconds = 600
 # Start interactive dictation TUI
 sttui
 
+# Equivalent explicit run command
+sttui run
+
 # Show CLI help
 sttui --help
 
@@ -85,6 +88,14 @@ sttui --model google/gemini-2.5-flash --max-seconds 120
 
 # Use a custom config file
 sttui --config ~/.config/sttui/config.toml
+
+# Background lifecycle (no TUI)
+sttui background start
+sttui background stop
+sttui background toggle
+
+# Same with desktop notifications
+sttui background --notify start
 ```
 
 All recordings and transcripts are stored in `~/.local/share/sttui/recordings/`.

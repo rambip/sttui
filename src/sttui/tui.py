@@ -112,10 +112,6 @@ class SettingsPanel(Static):
     widget reconstruction.
     """
 
-    BINDINGS = [
-        Binding("escape", "close_settings", "Close", show=False),
-    ]
-
     class InputDeviceChanged(Message):
         def __init__(self, input_device: int | None) -> None:
             self.input_device = input_device
@@ -362,8 +358,16 @@ class SttuiApp(App[None]):
         color: black;
     }
 
+    #status_spacer {
+        height: 1;
+    }
+
+    Screen.compact #status_spacer {
+        height: 0;
+    }
+
     #content_box {
-        height: 50%;
+        height: 60%;
         border: round gray;
     }
 
@@ -372,7 +376,7 @@ class SttuiApp(App[None]):
     }
 
     #idle_message {
-        height: 50%;
+        height: 60%;
         border: round gray;
         content-align: center middle;
         color: rgb(150, 150, 150);
@@ -403,7 +407,7 @@ class SttuiApp(App[None]):
     }
 
     #content_box {
-        height: 50%;
+        height: 60%;
         padding: 0 1;
         border: round gray;
         overflow-y: auto;
@@ -519,7 +523,7 @@ class SttuiApp(App[None]):
         Binding("c,y", "copy_transcript", "Copy", show=True),
         Binding("backspace", "undo_last_transcript", "Undo", show=True),
         Binding("enter", "confirm_or_restart", "Enter", show=True),
-        Binding("escape", "close_settings", "Close Settings", show=False),
+        Binding("escape,ctrl+c", "cancel_or_close", "Cancel/Close", show=True),
         Binding("q", "quit_app", "Quit", show=True),
     ]
 
@@ -556,6 +560,7 @@ class SttuiApp(App[None]):
         with Vertical(id="layout"):
             with Vertical(id="panel"):
                 yield Static("", id="state_line")
+                yield Static("", id="status_spacer")
                 with VerticalScroll(id="content_box"):
                     yield Static("", id="content_text")
                 yield Static("", id="idle_message")
@@ -672,6 +677,17 @@ class SttuiApp(App[None]):
 
     def _render_hint(self) -> None:
         footer = self.query_one("#footer", StatusFooter)
+        if self.status == "recording":
+            footer.styles.display = "block"
+            footer.set_bindings(
+                [
+                    [
+                        ("Esc", "cancel audio"),
+                        ("S", "stop"),
+                    ]
+                ]
+            )
+            return
         if not self.transcripts:
             footer.update("")
             footer.styles.display = "none"
@@ -715,6 +731,41 @@ class SttuiApp(App[None]):
             return
         if self.status in {"idle", "done", "error"}:
             self._start_recording()
+
+    def action_cancel_or_close(self) -> None:
+        if self.status == "recording":
+            self._cancel_recording()
+            return
+        self.action_close_settings()
+
+    def _cancel_recording(self) -> None:
+        if self.status != "recording":
+            return
+        if self._max_timer is not None:
+            self._max_timer.stop()
+            self._max_timer = None
+
+        audio_path = self.audio_path
+        if self.session is not None:
+            try:
+                self.session.stop()
+            except RecordingError:
+                pass
+        self.session = None
+
+        if audio_path is not None:
+            try:
+                audio_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        self.audio_path = None
+        self.transcript_path = None
+        self.error_message = None
+        self.status = "idle"
+        self._last_volume = 0.0
+        self._render_all()
+        self._set_notification("Recording cancelled")
 
     def _start_recording(self) -> None:
         # Lazy import: recording stack pulls in sounddevice/numpy and is only
