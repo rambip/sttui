@@ -515,7 +515,7 @@ class SttuiApp(App[None]):
     BINDINGS = [
         Binding("space", "toggle_record", "Record/Stop", show=True),
         Binding("s", "stop_record", "Stop", show=True),
-        Binding("c", "copy_transcript", "Copy", show=True),
+        Binding("c,y", "copy_transcript", "Copy", show=True),
         Binding("backspace", "undo_last_transcript", "Undo", show=True),
         Binding("enter", "confirm_or_restart", "Enter", show=True),
         Binding("escape", "close_settings", "Close Settings", show=False),
@@ -527,7 +527,6 @@ class SttuiApp(App[None]):
         self.settings = settings
         self.session: RecorderSession | None = None
         self.audio_path: Path | None = None
-        self.transcript: str | None = None
         self.transcript_path: Path | None = None
         self.error_message: str | None = None
         self.status = "idle"
@@ -662,6 +661,9 @@ class SttuiApp(App[None]):
             blocks.append("\n".join(prefixed_lines))
         return "\n\n".join(blocks)
 
+    def get_joined_transcript(self) -> str:
+        return "\n\n".join(self.transcripts)
+
     def _render_audio_meta(self) -> None:
         """Render saved path info below the main box."""
         content = f"Audio: {self.audio_path}" if self.audio_path else ""
@@ -715,7 +717,6 @@ class SttuiApp(App[None]):
 
     def _start_recording(self) -> None:
         self._last_volume = 0.0
-        self.transcript = None
         self.transcript_path = None
         self.error_message = None
         self.audio_path = next_audio_path(self.settings.recordings_dir)
@@ -841,7 +842,6 @@ class SttuiApp(App[None]):
                 severity="warning",
                 timeout=4.0,
             )
-        self.transcript = transcript
         self.transcripts.append(transcript)
         self.transcript_path = write_transcript(audio_path, transcript)
         self.status = "done"
@@ -851,13 +851,12 @@ class SttuiApp(App[None]):
         if not self.transcripts:
             self._set_notification("No transcript to copy", severity="warning")
             return
-        self.transcript = self.transcripts[-1]
         try:
-            copy_text(self.transcript)
+            copy_text(self.get_joined_transcript())
         except ClipboardError as exc:
             self._set_error(str(exc))
             return
-        self._set_notification("Text copied to clipboard", timeout=2.0)
+        self._set_notification("Transcript history copied", timeout=2.0)
 
     def action_undo_last_transcript(self) -> None:
         """Remove the most recent transcript from history."""
@@ -868,21 +867,23 @@ class SttuiApp(App[None]):
             self._set_notification("Nothing to undo")
             return
         self.transcripts.pop()
-        self.transcript = self.transcripts[-1] if self.transcripts else None
         if not self.transcripts and self.status == "done":
             self.status = "idle"
         self._render_all()
         self._set_notification("Removed last transcript")
 
     def action_confirm_or_restart(self) -> None:
-        if self.status == "done" and self.settings.stdout_mode and self.transcript:
+        if (
+            self.status == "done"
+            and self.settings.stdout_mode
+            and self.get_joined_transcript()
+        ):
             self.emit_stdout = True
             self.exit_code = 0
             self.exit()
             return
         if self.status in {"done", "error"}:
             self.status = "idle"
-            self.transcript = None
             self.transcript_path = None
             self.error_message = None
             self._render_all()

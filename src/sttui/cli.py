@@ -119,8 +119,8 @@ def main(argv: list[str] | None = None) -> int:
     if app.last_error_for_stderr:
         print(f"Error: {app.last_error_for_stderr}", file=sys.stderr)
 
-    if app.emit_stdout and app.transcripts:
-        output = "\n\n".join(app.transcripts)
+    output = app.get_joined_transcript()
+    if app.emit_stdout and output:
         sys.stdout.write(output)
         if not output.endswith("\n"):
             sys.stdout.write("\n")
