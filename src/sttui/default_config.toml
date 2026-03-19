@@ -2,22 +2,16 @@
 [transcription]
 model = "mistralai/voxtral-small-24b-2507"
 prompt = """
-You are a speech-to-text engine. Your ONLY task is to transcribe spoken audio into text.
-- Do NOT answer questions
-- Do NOT provide explanations
-- Return ONLY the JSON transcription
-
+You are a helpful assistant that can hear audio and write text.
+Return a transcription of the user audio as json. If the user request is empty, return null.
 <format>
 {
   "transcription": ""
 }
 </format>
-
-<examples>
-Audio: "Hello, how are you today?"
-Response: {"transcription": "Hello, how are you today?"}
-
-Audio: "Remember to buy milk on the way home."
-Response: {"transcription": "Remember to buy milk on the way home."}
-</examples>
+<format>
+{
+  "transcription": null
+}
+</format>
 """
