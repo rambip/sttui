@@ -15,6 +15,10 @@ This project intentionally prioritizes a minimal, reliable one-shot dictation ex
 
 See `ROADMAP.md` for product scope, milestones, and implementation details.
 
+## Link to Architecture
+
+See `ARCHITECTURE.md` for a summary of each file's role, the test suite, and data flow diagrams.
+
 ## Code Style Considerations
 
 These conventions are inferred from project goals and current decisions:
@@ -199,4 +203,4 @@ This avoids tight coupling and makes future persistence easier.
 
 ## TODO
 
-TODO: add architecture to this file.
+- [ ] Add more detailed architecture documentation as the project evolves.
