@@ -35,3 +35,8 @@ sttui = ["*.toml"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.7",
+]

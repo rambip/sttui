@@ -643,10 +643,16 @@ class SttuiApp(App[None]):
         idle_msg = self.query_one("#idle_message", Static)
 
         if self.status == "error":
-            content_box.styles.display = "none"
             idle_msg.styles.display = "none"
-            text = self.query_one("#content_text", Static)
-            text.update("")
+            if self.transcripts:
+                content_box.styles.display = "block"
+                text = self.query_one("#content_text", Static)
+                text.update(self._format_transcripts_for_display())
+                content_box.scroll_end(y_axis=True)
+            else:
+                content_box.styles.display = "none"
+                text = self.query_one("#content_text", Static)
+                text.update("")
         elif self.transcripts:
             content_box.styles.display = "block"
             idle_msg.styles.display = "none"
