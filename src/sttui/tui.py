@@ -948,6 +948,7 @@ class SttuiApp(App[None]):
             return
         if self.status in {"done", "error"}:
             self.status = "idle"
+            self.transcripts.clear()
             self.transcript_path = None
             self.error_message = None
             self._render_all()
