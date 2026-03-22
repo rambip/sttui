@@ -82,6 +82,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="Send desktop notifications for background events.",
     )
 
+    send_parser = subparsers.add_parser(
+        "send",
+        help="Record, transcribe, and send to endpoints or commands",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "examples:\n"
+            "• Send the transcript as the 'text' value of a json payload:\n"
+            "    sttui send --post https://example.com --body '{\"text\": $0}'\n\n"
+            "• Send the first and second transcript parts as keys 'a' and 'b', ignore the rest:\n"
+            '    sttui send --post https://example.com --body \'{"a": $1, "b": $2}\'\n\n'
+            "• Send transcript to `/foo` endpoint, then wait 1s, then send empty palyload to `bar` endpoint:\n"
+            "    sttui send --post https://example.com/foo --body '{\"text\": $0}' --post https://example.com/bar --body '{}' --delay 1000\n"
+        ),
+    )
+    send_parser.add_argument(
+        "--post",
+        action="append",
+        default=[],
+        metavar="URL",
+        help="HTTP POST endpoint (can be repeated, in this case posts are done in sequence)",
+    )
+    send_parser.add_argument(
+        "--command",
+        dest="send_commands",
+        action="append",
+        default=[],
+        metavar="CMD",
+        help="Shell command to pipe transcript to (can be repeated, in this case commands are run in sequence)",
+    )
+    send_parser.add_argument(
+        "--delay",
+        type=int,
+        default=None,
+        metavar="MS",
+        help="When multiple --post or --command in sequence, set the delay (ms) between sends",
+    )
+    send_parser.add_argument(
+        "--body",
+        action="append",
+        default=None,
+        metavar="FMT",
+        help="JSON body template for associated --post. Sets Content-Type to JSON. \nIn the template, $0 is replaced by the transcript, including quotes.",
+    )
+
     parser.set_defaults(command="run")
     return parser
 
@@ -191,6 +235,33 @@ def main(argv: list[str] | None = None) -> int:
         print(message, file=stream)
         return code
 
+    if args.command == "send":
+        from sttui.send import SendConfig, SendTarget
+
+        targets: list[SendTarget] = []
+        bodies = args.body or []
+        for i, url in enumerate(args.post):
+            body = bodies[i] if i < len(bodies) else None
+            targets.append(SendTarget(kind="post", target=url, body=body))
+        for cmd in args.send_commands:
+            targets.append(SendTarget(kind="command", target=cmd, body=None))
+        if not targets:
+            print(
+                "Error: at least one --post or --command is required",
+                file=sys.stderr,
+            )
+            return 2
+        if args.delay is not None and len(targets) < 2:
+            print(
+                "Error: --delay only makes sense with multiple --post/--command",
+                file=sys.stderr,
+            )
+            return 2
+
+        send_config = SendConfig(targets=targets, delay_ms=args.delay)
+    else:
+        send_config = None
+
     try:
         settings = load_runtime_settings(
             config_path=args.config,
@@ -207,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
     # for the foreground run path.
     from sttui.tui import SttuiApp
 
-    app = SttuiApp(settings=settings)
+    app = SttuiApp(settings=settings, send_config=send_config)
     app.run()
 
     if app.last_error_for_stderr:

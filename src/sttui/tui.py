@@ -28,6 +28,7 @@ from textual.widgets import (
 from sttui.clipboard import copy_text
 from sttui.config import RuntimeSettings
 from sttui.errors import ClipboardError, RecordingError, TranscriptionError
+from sttui.send import SendConfig, execute_send
 from sttui.storage import next_audio_path, write_transcript
 
 if TYPE_CHECKING:
@@ -527,9 +528,12 @@ class SttuiApp(App[None]):
         Binding("q", "quit_app", "Quit", show=True),
     ]
 
-    def __init__(self, settings: RuntimeSettings):
+    def __init__(
+        self, settings: RuntimeSettings, send_config: SendConfig | None = None
+    ):
         super().__init__()
         self.settings = settings
+        self.send_config = send_config
         self.session: RecorderSession | None = None
         self.audio_path: Path | None = None
         self.transcript_path: Path | None = None
@@ -662,7 +666,10 @@ class SttuiApp(App[None]):
         else:
             content_box.styles.display = "none"
             idle_msg.styles.display = "block"
-            idle_msg.update("Press Space to start recording")
+            if self.send_config:
+                idle_msg.update("Press Space to record, Enter to send transcript")
+            else:
+                idle_msg.update("Press Space to start recording")
 
     def _format_transcripts_for_display(self) -> str:
         blocks: list[str] = []
@@ -699,9 +706,12 @@ class SttuiApp(App[None]):
             footer.styles.display = "none"
             return
         footer.styles.display = "block"
-        enter_desc = (
-            "write to stdout and exit" if self.settings.stdout_mode else "new recording"
-        )
+        if self.settings.stdout_mode:
+            enter_desc = "write to stdout and exit"
+        elif self.send_config:
+            enter_desc = "send and continue"
+        else:
+            enter_desc = "new recording"
         groups = [
             [
                 ("Space", "keep recording"),
@@ -952,12 +962,34 @@ class SttuiApp(App[None]):
             self.exit_code = 0
             self.exit()
             return
+        if self.status == "done" and self.send_config and self.transcripts:
+            asyncio.create_task(self._execute_send_and_clear())
+            return
         if self.status in {"done", "error"}:
             self.status = "idle"
             self.transcripts.clear()
             self.transcript_path = None
             self.error_message = None
             self._render_all()
+
+    async def _execute_send_and_clear(self) -> None:
+        assert self.send_config is not None
+        results = await asyncio.to_thread(
+            execute_send, self.transcripts, self.send_config
+        )
+        all_ok = all(ok for ok, _ in results)
+        for ok, msg in results:
+            if ok:
+                self._set_notification(msg, timeout=3.0)
+            else:
+                self._set_notification(msg, severity="error", timeout=6.0)
+        if all_ok:
+            self.exit_code = 0
+        self.transcripts.clear()
+        self.transcript_path = None
+        self.error_message = None
+        self.status = "idle"
+        self._render_all()
 
     async def action_quit_app(self) -> None:
         if self.settings_open:

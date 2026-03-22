@@ -89,6 +89,17 @@ sttui --model google/gemini-2.5-flash --max-seconds 120
 # Use a custom config file
 sttui --config ~/.config/sttui/config.toml
 
+# Record, transcribe, and send to an HTTP endpoint
+sttui send --post https://example.com --body '{"text": $0}'
+
+# Send transcript to a shell command
+sttui send --command 'xargs -I {} notify-send "{}"'
+
+# Chain multiple sends (with 1s delay between them)
+sttui send --post https://example.com/foo --body '{"a": $1}' \
+           --post https://example.com/bar --body '{}' \
+           --delay 1000
+
 # Background lifecycle (no TUI)
 sttui background start
 sttui background stop
@@ -97,6 +108,12 @@ sttui background toggle
 # Same with desktop notifications
 sttui background --notify start
 ```
+
+## Send Command Templates
+
+In `--body` templates, use `$0` for the full transcript, `$1`/`$2`/etc. for individual parts.
+
+Values are JSON-escaped automatically when a `--body` template is provided.
 
 All recordings and transcripts are stored in `~/.local/share/sttui/recordings/`.
 
