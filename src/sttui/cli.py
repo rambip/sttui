@@ -82,6 +82,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Send desktop notifications for background events.",
     )
 
+    recipes_parser = subparsers.add_parser(
+        "recipes",
+        help="Show practical recipes for using sttui",
+    )
+    recipes_sub = recipes_parser.add_subparsers(dest="recipe", required=False)
+
+    recipes_sub.add_parser(
+        "agents",
+        help="Integrate sttui with AI coding agents",
+    )
+
+    recipes_sub.add_parser(
+        "desktop",
+        help="Desktop environment keybinding recipes",
+    )
+
     send_parser = subparsers.add_parser(
         "send",
         help="Record, transcribe, and send to endpoints or commands",
@@ -166,6 +182,148 @@ def cmd_auth() -> int:
     return 0
 
 
+def _print_md(text: str) -> None:
+    from rich.console import Console
+    from rich.markdown import Markdown
+
+    console = Console(highlight=False)
+    console.print(Markdown(text))
+    console.print()
+    console.rule(style="dim")
+
+
+def cmd_recipes_index() -> int:
+    _print_md(
+        """\
+# sttui recipes
+
+Practical recipes organized by context.
+
+## Available chapters
+
+- **agents** — Integrate sttui with AI coding agents (opencode, etc.)
+- **desktop** — Desktop environment keybinding setup (GNOME, KDE, Hyprland, ...)
+
+Run `sttui recipes <chapter>` to read one.
+"""
+    )
+    return 0
+
+
+def cmd_recipes_agents() -> int:
+    _print_md(
+        """\
+# sttui + AI coding agents
+
+Dictate directly into coding agents via sttui's `send` command.
+
+## OpenCode
+
+Export the server URL once so every command below picks it up:
+
+```sh
+export OPENCODE_URL=http://localhost:4096
+```
+
+Start the agent server:
+
+```sh
+opencode serve
+```
+
+In another terminal, attach to it:
+
+```sh
+opencode attach $OPENCODE_URL
+```
+
+### Send dictation as a prompt
+
+Pipe your spoken transcript straight into the agent's prompt input:
+
+```sh
+sttui send \\
+  --post $OPENCODE_URL/tui/append-prompt \\
+  --body '{"text": $0}' \\
+  --post $OPENCODE_URL/tui/submit-prompt
+```
+
+- The first POST appends your transcript to the prompt.
+- The second POST submits the prompt.
+- Both fire in sequence after a single dictation.
+
+### Tips
+
+- Add `--delay 500` if the agent needs a moment between the two requests.
+- Use `sttui send` with `--command` to pipe transcripts into other CLI agents.
+"""
+    )
+    return 0
+
+
+def cmd_recipes_desktop() -> int:
+    _print_md(
+        """\
+# sttui desktop keybindings
+
+Toggle background recording from a keyboard shortcut.
+
+```sh
+uvx sttui background toggle --notify
+```
+
+The `--notify` flag sends desktop notifications on start/stop.
+
+## GNOME
+
+Open **Settings → Keyboard → Custom Shortcuts**, add:
+
+- **Name:** sttui toggle
+- **Command:** `uvx sttui background toggle --notify`
+- **Shortcut:** your preferred key combo
+
+## KDE
+
+Open **System Settings → Shortcuts → Custom Shortcuts**, add:
+
+- **Name:** sttui toggle
+- **Command:** `uvx sttui background toggle --notify`
+- **Trigger:** your preferred key combo
+
+## Hyprland
+
+Add to `~/.config/hypr/hyprland.conf`:
+
+```sh
+bind = SUPER, D, exec, uvx sttui background toggle --notify
+```
+
+## Sway
+
+Add to `~/.config/sway/config`:
+
+```sh
+bindsym $mod+d exec uvx sttui background toggle --notify
+```
+
+## i3
+
+Add to `~/.config/i3/config`:
+
+```sh
+bindsym $mod+d exec --no-startup-id uvx sttui background toggle --notify
+```
+
+## Tips
+
+- Remove `--notify` if you prefer silent toggling.
+- Use `sttui background start` / `stop` if you want separate bindings.
+- Transcripts land in `~/.local/share/sttui/recordings/`.
+"""
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
 
@@ -204,6 +362,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "auth":
         return cmd_auth()
+
+    if args.command == "recipes":
+        if args.recipe == "agents":
+            return cmd_recipes_agents()
+        if args.recipe == "desktop":
+            return cmd_recipes_desktop()
+        return cmd_recipes_index()
 
     if args.command == "background":
         # Lazy import: background lifecycle commands don't need TUI modules.
