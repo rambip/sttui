@@ -17,5 +17,9 @@ class TranscriptionError(SttuiError):
     """Transcription API call or parsing failed."""
 
 
+class RetryableTranscriptionError(TranscriptionError):
+    """Transcription failed due to network issues or formatting problems and can be retried."""
+
+
 class ClipboardError(SttuiError):
     """Clipboard operation failed."""

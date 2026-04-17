@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 import requests
 
-from sttui.errors import TranscriptionError
+from sttui.errors import RetryableTranscriptionError, TranscriptionError
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
@@ -155,7 +155,7 @@ def list_audio_models(api_key: str, timeout_seconds: int = 20) -> list[str]:
             OPENROUTER_MODELS_URL, headers=headers, timeout=timeout_seconds
         )
     except requests.RequestException as exc:
-        raise TranscriptionError("network error") from exc
+        raise RetryableTranscriptionError("network error") from exc
 
     if resp.status_code < 200 or resp.status_code >= 300:
         _raise_api_error(resp)
@@ -217,7 +217,7 @@ def transcribe_audio(
             timeout=timeout_seconds,
         )
     except requests.RequestException as exc:
-        raise TranscriptionError("network error") from exc
+        raise RetryableTranscriptionError("network error") from exc
 
     if resp.status_code < 200 or resp.status_code >= 300:
         _raise_api_error(resp)
@@ -225,7 +225,7 @@ def transcribe_audio(
     try:
         data = resp.json()
     except ValueError as exc:
-        raise TranscriptionError("malformed API response") from exc
+        raise RetryableTranscriptionError("malformed API response") from exc
     if not isinstance(data, dict):
-        raise TranscriptionError("malformed API response")
+        raise RetryableTranscriptionError("malformed API response")
     return _parse_transcript_with_meta(data)

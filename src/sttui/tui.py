@@ -27,7 +27,12 @@ from textual.widgets import (
 
 from sttui.clipboard import copy_text
 from sttui.config import RuntimeSettings
-from sttui.errors import ClipboardError, RecordingError, TranscriptionError
+from sttui.errors import (
+    ClipboardError,
+    RecordingError,
+    RetryableTranscriptionError,
+    TranscriptionError,
+)
 from sttui.send import SendConfig, execute_send
 from sttui.storage import next_audio_path, write_transcript
 
@@ -383,6 +388,11 @@ class SttuiApp(App[None]):
         color: rgb(150, 150, 150);
     }
 
+    #idle_message.retry-hint {
+        color: rgb(200, 150, 220);
+        border: round rgb(180, 100, 220);
+    }
+
     Screen.compact #content_box {
         margin-top: 0;
     }
@@ -405,6 +415,10 @@ class SttuiApp(App[None]):
 
     #state_line.state-error {
         background: rgb(255, 90, 90);
+    }
+
+    #state_line.state-retry_error {
+        background: rgb(180, 100, 220);
     }
 
     #content_box {
@@ -526,6 +540,7 @@ class SttuiApp(App[None]):
         Binding("enter", "confirm_or_restart", "Enter", show=True),
         Binding("escape,ctrl+c", "cancel_or_close", "Cancel/Close", show=True),
         Binding("q", "quit_app", "Quit", show=True),
+        Binding("r", "rerun_transcription", "Rerun", show=True),
     ]
 
     def __init__(
@@ -606,6 +621,7 @@ class SttuiApp(App[None]):
             "state-transcribing",
             "state-done",
             "state-error",
+            "state-retry_error",
         )
         if self.status == "idle":
             widget.add_class("state-idle")
@@ -640,14 +656,23 @@ class SttuiApp(App[None]):
         elif self.status == "error":
             widget.add_class("state-error")
             widget.update(f"Error: {self.error_message or 'An error occurred'}")
+        elif self.status == "retry_error":
+            widget.add_class("state-retry_error")
+            widget.update(f"Transcription failed: {self.error_message or 'Unknown error'}")
 
     def _render_content_box(self) -> None:
         """Render primary content area separate from status banner."""
         content_box = self.query_one("#content_box", VerticalScroll)
         idle_msg = self.query_one("#idle_message", Static)
 
-        if self.status == "error":
+        if self.status == "retry_error" and not self.transcripts:
+            content_box.styles.display = "none"
+            idle_msg.styles.display = "block"
+            idle_msg.add_class("retry-hint")
+            idle_msg.update("Press R to retry transcription")
+        elif self.status == "error":
             idle_msg.styles.display = "none"
+            idle_msg.remove_class("retry-hint")
             if self.transcripts:
                 content_box.styles.display = "block"
                 text = self.query_one("#content_text", Static)
@@ -660,12 +685,14 @@ class SttuiApp(App[None]):
         elif self.transcripts:
             content_box.styles.display = "block"
             idle_msg.styles.display = "none"
+            idle_msg.remove_class("retry-hint")
             text = self.query_one("#content_text", Static)
             text.update(self._format_transcripts_for_display())
             content_box.scroll_end(y_axis=True)
         else:
             content_box.styles.display = "none"
             idle_msg.styles.display = "block"
+            idle_msg.remove_class("retry-hint")
             if self.send_config:
                 idle_msg.update("Press Space to record, Enter to send transcript")
             else:
@@ -697,6 +724,18 @@ class SttuiApp(App[None]):
                     [
                         ("Esc", "cancel audio"),
                         ("S", "stop"),
+                    ]
+                ]
+            )
+            return
+        if self.status == "retry_error":
+            footer.styles.display = "block"
+            footer.set_bindings(
+                [
+                    [
+                        ("R", "rerun"),
+                        ("Esc", "discard"),
+                        ("Q", "quit"),
                     ]
                 ]
             )
@@ -751,6 +790,9 @@ class SttuiApp(App[None]):
     def action_cancel_or_close(self) -> None:
         if self.status == "recording":
             self._cancel_recording()
+            return
+        if self.status == "retry_error":
+            self._discard_error()
             return
         self.action_close_settings()
 
@@ -912,6 +954,12 @@ class SttuiApp(App[None]):
                 prompt=self.settings.prompt,
                 audio_path=audio_path,
             )
+        except RetryableTranscriptionError as exc:
+            self.status = "retry_error"
+            self.error_message = str(exc)
+            self.last_error_for_stderr = str(exc)
+            self._render_all()
+            return
         except TranscriptionError as exc:
             self._set_error(str(exc))
             return
@@ -939,7 +987,10 @@ class SttuiApp(App[None]):
         self._set_notification("Transcript history copied", timeout=2.0)
 
     def action_undo_last_transcript(self) -> None:
-        """Remove the most recent transcript from history."""
+        """Remove the most recent transcript from history or discard error."""
+        if self.status == "retry_error":
+            self._discard_error()
+            return
         if self.status in {"recording", "transcribing"}:
             self._set_notification("Stop recording before undo")
             return
@@ -947,10 +998,28 @@ class SttuiApp(App[None]):
             self._set_notification("Nothing to undo")
             return
         self.transcripts.pop()
-        if not self.transcripts and self.status == "done":
+        if not self.transcripts and self.status in {"done", "retry_error"}:
             self.status = "idle"
         self._render_all()
         self._set_notification("Removed last transcript")
+
+    def _discard_error(self) -> None:
+        """Discard retry error and return to idle."""
+        self.status = "idle"
+        self.error_message = None
+        self._render_all()
+
+    def action_rerun_transcription(self) -> None:
+        """Rerun transcription on the last recorded audio."""
+        if self.status != "retry_error":
+            return
+        if self.audio_path is None:
+            self._set_notification("No audio to rerun", severity="warning")
+            return
+        self.status = "transcribing"
+        self.error_message = None
+        self._render_all()
+        asyncio.create_task(self._run_transcription())
 
     def action_confirm_or_restart(self) -> None:
         if (
@@ -965,7 +1034,7 @@ class SttuiApp(App[None]):
         if self.status == "done" and self.send_config and self.transcripts:
             asyncio.create_task(self._execute_send_and_clear())
             return
-        if self.status in {"done", "error"}:
+        if self.status in {"done", "error", "retry_error"}:
             self.status = "idle"
             self.transcripts.clear()
             self.transcript_path = None
