@@ -631,7 +631,9 @@ class SttuiApp(App[None]):
         elif self.status == "recording":
             widget.add_class("state-recording")
             power = self.session.current_power if self.session else 0.0
-            normalized = min(power / 2000.0, 1.0)
+            # Power scaling with small exponent - compresses high values,
+            # expands low values, works better across different mic sensitivities
+            normalized = min((power / 5000.0) ** 0.35, 1.0)
             width = widget.size.width - 12
             if width < 10:
                 width = 40
