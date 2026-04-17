@@ -109,7 +109,9 @@ def build_parser() -> argparse.ArgumentParser:
             "• Send the first and second transcript parts as keys 'a' and 'b', ignore the rest:\n"
             '    sttui send --post https://example.com --body \'{"a": $1, "b": $2}\'\n\n'
             "• Send transcript to `/foo` endpoint, then wait 1s, then send empty palyload to `bar` endpoint:\n"
-            "    sttui send --post https://example.com/foo --body '{\"text\": $0}' --post https://example.com/bar --body '{}' --delay 1000\n"
+            "    sttui send --post https://example.com/foo --body '{\"text\": $0}' --post https://example.com/bar --body '{}' --delay 1000\n\n"
+            "• Send transcript to a Unix socket (e.g., pi agent):\n"
+            '    sttui send --socket /run/user/1000/pi/sttui.sock --body \'{"message": $0}\'\n'
         ),
     )
     send_parser.add_argument(
@@ -139,7 +141,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=None,
         metavar="FMT",
-        help="JSON body template for associated --post. Sets Content-Type to JSON. \nIn the template, $0 is replaced by the transcript, including quotes.",
+        help="JSON body template for associated --post/--socket. Sets Content-Type to JSON. \nIn the template, $0 is replaced by the transcript, including quotes.",
+    )
+    send_parser.add_argument(
+        "--socket",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Unix socket path to send to (can be repeated, sends are done in sequence)",
     )
 
     parser.set_defaults(command="run")
@@ -405,9 +414,17 @@ def main(argv: list[str] | None = None) -> int:
 
         targets: list[SendTarget] = []
         bodies = args.body or []
+        body_idx = 0
         for i, url in enumerate(args.post):
-            body = bodies[i] if i < len(bodies) else None
+            body = bodies[body_idx] if body_idx < len(bodies) else None
+            if body:
+                body_idx += 1
             targets.append(SendTarget(kind="post", target=url, body=body))
+        for sock_path in args.socket:
+            body = bodies[body_idx] if body_idx < len(bodies) else None
+            if body:
+                body_idx += 1
+            targets.append(SendTarget(kind="socket", target=sock_path, body=body))
         for cmd in args.send_commands:
             targets.append(SendTarget(kind="command", target=cmd, body=None))
         if not targets:

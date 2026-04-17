@@ -95,6 +95,9 @@ sttui send --post https://example.com --body '{"text": $0}'
 # Send transcript to a shell command
 sttui send --command 'xargs -I {} notify-send "{}"'
 
+# Send transcript to a Unix socket (e.g., pi coding agent)
+sttui send --socket /run/user/1000/pi/sttui.sock --body '{"message": $0}'
+
 # Chain multiple sends (with 1s delay between them)
 sttui send --post https://example.com/foo --body '{"a": $1}' \
            --post https://example.com/bar --body '{}' \
@@ -116,6 +119,21 @@ In `--body` templates, use `$0` for the full transcript, `$1`/`$2`/etc. for indi
 Values are JSON-escaped automatically when a `--body` template is provided.
 
 All recordings and transcripts are stored in `~/.local/share/sttui/recordings/`.
+
+# Integrations
+
+## pi coding agent
+
+Dictate directly into pi using sttui's socket integration.
+
+Copy the extension to your pi extensions folder:
+
+```bash
+mkdir -p ~/.pi/agent/extensions
+cp integrations/pi.ts ~/.pi/agent/extensions/sttui.ts
+```
+
+After starting pi, you'll see the sttui command in the chat.
 
 # Contributing
 

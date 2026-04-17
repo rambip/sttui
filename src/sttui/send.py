@@ -6,6 +6,7 @@ import json
 import logging
 import subprocess
 import os
+import socket as pysocket
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -16,11 +17,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SendTarget:
-    """A single send destination (POST endpoint or command)."""
+    """A single send destination (POST endpoint, command, or socket)."""
 
-    kind: str  # "post" or "command"
-    target: str  # URL or shell command
-    body: str | None = None  # JSON body template (POST only, $0/$1 placeholders)
+    kind: str  # "post", "command", or "socket"
+    target: str  # URL, shell command, or socket path
+    body: str | None = None  # JSON body template (POST/socket only, $0/$1 placeholders)
 
 
 @dataclass
@@ -65,6 +66,27 @@ def send_post(
         return False, f"POST {url}: HTTP {resp.status_code}"
     except requests.RequestException as exc:
         return False, f"POST {url}: {exc}"
+
+
+def send_socket(
+    socket_path: str,
+    body: str,
+    *,
+    timeout: float = 5.0,
+) -> tuple[bool, str]:
+    """Send to Unix socket.
+
+    Returns (success, message).
+    """
+    try:
+        sock = pysocket.socket(pysocket.AF_UNIX, pysocket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect(socket_path)
+        sock.sendall(body.encode("utf-8"))
+        sock.close()
+        return True, f"Socket OK: {socket_path}"
+    except (pysocket.error, pysocket.timeout, OSError) as exc:
+        return False, f"Socket error: {socket_path}: {exc}"
 
 
 def send_command(
@@ -157,6 +179,8 @@ def execute_send(
             success, msg = send_post(
                 target.target, body, as_json=target.body is not None
             )
+        elif target.kind == "socket":
+            success, msg = send_socket(target.target, body)
         else:
             success, msg = send_command(target.target, body)
 
