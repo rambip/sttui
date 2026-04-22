@@ -90,18 +90,18 @@ sttui --model google/gemini-2.5-flash --max-seconds 120
 sttui --config ~/.config/sttui/config.toml
 
 # Record, transcribe, and send to an HTTP endpoint
-sttui send --post https://example.com --body '{"text": $0}'
+sttui --send-post https://example.com --send-body '{"text": $0}'
 
 # Send transcript to a shell command
-sttui send --command 'xargs -I {} notify-send "{}"'
+sttui --send-command 'xargs -I {} notify-send "{}"'
 
 # Send transcript to a Unix socket (e.g., pi coding agent)
-sttui send --socket /run/user/1000/pi/sttui.sock --body '{"message": $0}'
+sttui --send-socket /run/user/1000/pi/sttui.sock --send-body '{"message": $0}'
 
 # Chain multiple sends (with 1s delay between them)
-sttui send --post https://example.com/foo --body '{"a": $1}' \
-           --post https://example.com/bar --body '{}' \
-           --delay 1000
+sttui --send-post https://example.com/foo --send-body '{"a": $1}' \
+           --send-post https://example.com/bar --send-body '{}' \
+           --send-delay 1000
 
 # Background lifecycle (no TUI)
 sttui background start

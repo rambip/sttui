@@ -26,7 +26,7 @@ export default function (pi: ExtensionAPI) {
     console.log(`[sttui] Listening on ${socketPath}`);
     pi.sendMessage({
       customType: "sttui-socket",
-      content: `# Connect sttui to pi agent\n\`\`\`\nsttui send --socket ${socketPath} --body '{"message": $0}'\n\`\`\`\n`,
+      content: `# Connect sttui to pi agent\n\`\`\`\nsttui --send-socket ${socketPath} --send-body '{"message": $0}'\n\`\`\`\n`,
       display: true,
     });
   });
