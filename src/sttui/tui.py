@@ -534,10 +534,9 @@ class SttuiApp(App[None]):
 
     BINDINGS = [
         Binding("space", "toggle_record", "Record/Stop", show=True),
-        Binding("s", "stop_record", "Stop", show=True),
         Binding("c,y", "copy_transcript", "Copy", show=True),
         Binding("backspace", "undo_last_transcript", "Undo", show=True),
-        Binding("enter", "confirm_or_restart", "Enter", show=True),
+        Binding("enter,s", "confirm_or_restart", "Enter", show=True),
         Binding("escape,ctrl+c", "cancel_or_close", "Cancel/Close", show=True),
         Binding("q", "quit_app", "Quit", show=True),
         Binding("r", "rerun_transcription", "Rerun", show=True),
