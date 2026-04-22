@@ -1,3 +1,5 @@
+// sttui: speech-to-text terminal app. User may be dictating thoughts.
+
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
