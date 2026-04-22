@@ -14,8 +14,56 @@ DEFAULT_MODEL = "google/gemini-2.5-flash"
 DEFAULT_PROMPT = "Please transcribe this audio file."
 DEFAULT_MAX_SECONDS = 600
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "sttui" / "config.toml"
-DEFAULT_AUTH_PATH = Path.home() / ".config" / "sttui" / "auth.json"
+DEFAULT_AUTH_PATH = Path.home() / ".local" / "share" / "sttui" / "auth.json"
+LEGACY_AUTH_PATH = Path.home() / ".config" / "sttui" / "auth.json"
 DEFAULT_RECORDINGS_DIR = Path.home() / ".local" / "share" / "sttui" / "recordings"
+
+
+def find_auth_path(interactive: bool = False) -> tuple[Path, bool]:
+    """Find auth file, checking new location first, then legacy location.
+    
+    Returns (path, using_legacy). In interactive mode with legacy path,
+    raises NeedMigrationError to let the CLI prompt the user. In non-interactive
+    mode, silently returns legacy path if it exists and prints warning to stderr.
+    """
+    import sys
+
+    if DEFAULT_AUTH_PATH.exists():
+        return DEFAULT_AUTH_PATH, False
+    if LEGACY_AUTH_PATH.exists():
+        if interactive:
+            raise NeedMigrationError(legacy=LEGACY_AUTH_PATH, new=DEFAULT_AUTH_PATH)
+        # Non-interactive: silently use legacy, but warn
+        print(
+            f"Warning: using legacy auth location {LEGACY_AUTH_PATH}. "
+            f"sttui now uses {DEFAULT_AUTH_PATH}. Run 'sttui auth' to re-register, or manually move the file.",
+            file=sys.stderr,
+        )
+        return LEGACY_AUTH_PATH, True
+    return DEFAULT_AUTH_PATH, False  # Return default for error message
+
+
+class NeedMigrationError(ConfigError):
+    """Auth file needs migration from legacy to new location."""
+    legacy: Path
+    new: Path
+
+    def __init__(self, legacy: Path, new: Path) -> None:
+        self.legacy = legacy
+        self.new = new
+        super().__init__(
+            f"Auth file found at legacy location {legacy}. "
+            f"sttui now uses {new}. Run 'sttui auth' to re-register, or manually move the file."
+        )
+
+
+def is_interactive() -> bool:
+    """Check if we're running in interactive mode (TTY)."""
+    import os
+    try:
+        return os.isatty(0)  # stdin
+    except (OSError, ValueError):
+        return False
 
 
 @dataclass(frozen=True)

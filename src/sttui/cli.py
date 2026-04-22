@@ -11,6 +11,9 @@ from sttui.config import (
     DEFAULT_AUTH_PATH,
     DEFAULT_CONFIG_PATH,
     DEFAULT_RECORDINGS_DIR,
+    NeedMigrationError,
+    find_auth_path,
+    is_interactive,
     load_runtime_settings,
 )
 from sttui.errors import ConfigError
@@ -263,10 +266,13 @@ def build_background_worker_parser() -> argparse.ArgumentParser:
 
 
 def cmd_auth() -> int:
+    import getpass
+
     print("Visit openrouter to create an API key:")
     print("https://openrouter.ai/settings/keys\n")
     print("Then, paste your API key below and press Enter.\n")
-    api_key = input("API key: ").strip()
+    print("(Use Shift+Insert to paste without echoing)\n")
+    api_key = getpass.getpass("API key: ").strip()
 
     if not api_key:
         print("No API key provided.", file=sys.stderr)
@@ -475,7 +481,8 @@ def main(argv: list[str] | None = None) -> int:
         from sttui.config import RuntimeSettings, load_api_key
 
         try:
-            api_key = load_api_key(auth_path=DEFAULT_AUTH_PATH)
+            auth_path, _ = find_auth_path(interactive=False)
+            api_key = load_api_key(auth_path=auth_path)
         except ConfigError as exc:
             print(str(exc), file=sys.stderr)
             return 2
@@ -616,6 +623,37 @@ def main(argv: list[str] | None = None) -> int:
 
     # Build send config for run command (or default)
     send_config = _build_send_config(args)
+
+    # Check for auth migration (interactive mode only)
+    interactive = is_interactive()
+    if interactive:
+        try:
+            auth_path, _ = find_auth_path(interactive=True)
+        except NeedMigrationError as exc:
+            print(
+                f"\nMigration needed: sttui now stores auth at {exc.new}\n"
+                f"Legacy auth found at {exc.legacy}\n",
+                file=sys.stderr,
+            )
+            response = input("Move auth file to new location? [Y/n]: ").strip().lower()
+            if response in ("", "y", "yes"):
+                # Check if new path already exists
+                if exc.new.exists():
+                    print(
+                        f"Error: {exc.new} already exists. Please resolve manually.\n",
+                        file=sys.stderr,
+                    )
+                    return 1
+                # Create directory and move file
+                exc.new.parent.mkdir(parents=True, exist_ok=True)
+                exc.legacy.rename(exc.new)
+                print(f"Moved auth to {exc.new}", file=sys.stderr)
+            else:
+                # User said no - continue with legacy (silently)
+                print("Using legacy auth location.", file=sys.stderr)
+    else:
+        # Non-interactive: check legacy, print warning if using it
+        _, using_legacy = find_auth_path(interactive=False)
 
     try:
         settings = load_runtime_settings(

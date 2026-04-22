@@ -135,10 +135,19 @@ def _raise_api_error(resp: _ResponseLike) -> None:
     detail = _extract_api_error_detail(resp)
     detail_lc = detail.lower()
 
+    # Non-retryable: invalid API key
     if status_code in {401, 403}:
         raise TranscriptionError(INVALID_API_KEY_MSG)
     if "invalid api key" in detail_lc or "unauthorized" in detail_lc:
         raise TranscriptionError(INVALID_API_KEY_MSG)
+
+    # Retryable: balance issues, rate limits, server errors
+    if "balance" in detail_lc or status_code in {429} or status_code >= 500:
+        if detail:
+            raise RetryableTranscriptionError(f"api error: {detail}")
+        raise RetryableTranscriptionError(f"api error: HTTP {status_code}")
+
+    # Other API errors - non-retryable
     if detail:
         raise TranscriptionError(f"api error: {detail}")
     raise TranscriptionError(f"api error: HTTP {status_code}")
