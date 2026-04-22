@@ -495,7 +495,7 @@ wheels = [
 
 [[package]]
 name = "sttui"
-version = "0.2.3"
+version = "0.3.0a1"
 source = { editable = "." }
 dependencies = [
     { name = "clipboard" },

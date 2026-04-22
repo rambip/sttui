@@ -12,11 +12,14 @@ import subprocess
 import sys
 import time
 
+from dataclasses import asdict
+
 from sttui.clipboard import copy_text
 from sttui.config import RuntimeSettings
 from sttui.errors import ClipboardError, RecordingError, TranscriptionError
 from sttui.notifications import send_desktop_notification
 from sttui.recording import RecorderSession
+from sttui.send import SendConfig, execute_send
 from sttui.storage import write_transcript
 from sttui.transcribe import transcribe_audio
 
@@ -110,6 +113,9 @@ def start_background(
     settings: RuntimeSettings,
     *,
     notify: bool = False,
+    send_config: SendConfig | None = None,
+    output_clipboard: bool = True,
+    output_stdout: bool = False,
     state_path: Path | None = None,
     log_path: Path | None = None,
 ) -> tuple[int, str]:
@@ -150,6 +156,21 @@ def start_background(
             cmd.append("--debug")
         if notify:
             cmd.append("--notify")
+        if send_config:
+            # Serialize SendConfig to JSON
+            config_dict = {
+                "targets": [
+                    {"kind": t.kind, "target": t.target, "body": t.body}
+                    for t in send_config.targets
+                ],
+                "delay_ms": send_config.delay_ms,
+            }
+            cmd.extend(["--send-config", json.dumps(config_dict)])
+
+        cmd.append("--output-clipboard")
+        cmd.append("1" if output_clipboard else "0")
+        cmd.append("--output-stdout")
+        cmd.append("1" if output_stdout else "0")
 
         process = subprocess.Popen(
             cmd,
@@ -196,6 +217,9 @@ def toggle_background(
     settings: RuntimeSettings,
     *,
     notify: bool = False,
+    send_config: SendConfig | None = None,
+    output_clipboard: bool = True,
+    output_stdout: bool = False,
     state_path: Path | None = None,
     log_path: Path | None = None,
 ) -> tuple[int, str]:
@@ -206,6 +230,9 @@ def toggle_background(
     return start_background(
         settings,
         notify=notify,
+        send_config=send_config,
+        output_clipboard=output_clipboard,
+        output_stdout=output_stdout,
         state_path=actual_state_path,
         log_path=log_path,
     )
@@ -223,6 +250,9 @@ def run_background_worker(
     audio_path: Path,
     settings: RuntimeSettings,
     notify: bool = False,
+    send_config: SendConfig | None = None,
+    output_clipboard: bool = True,
+    output_stdout: bool = False,
 ) -> int:
     global _STOP_REQUESTED
     _STOP_REQUESTED = False
@@ -248,9 +278,30 @@ def run_background_worker(
             audio_path=audio_path,
         )
         write_transcript(audio_path, transcript)
-        copy_text(transcript)
+
+        if output_clipboard:
+            copy_text(transcript)
+            if notify:
+                send_desktop_notification("sttui", "Background transcript copied to clipboard")
+
+        if output_stdout:
+            print(transcript)
+
         if notify:
-            send_desktop_notification("sttui", "Background transcript copied")
+            pass  # Notification handled above for clipboard
+
+        # Execute send config if provided
+        if send_config and send_config.targets:
+            parts = [transcript]
+            results = execute_send(parts, send_config)
+            for ok, msg in results:
+                if ok:
+                    print(f"[send] {msg}", file=sys.stderr)
+                else:
+                    print(f"[send] error: {msg}", file=sys.stderr)
+            if notify:
+                send_desktop_notification("sttui", "Background transcript sent")
+
         return 0
     except (RecordingError, TranscriptionError, ClipboardError) as exc:
         print(f"background worker error: {exc}", file=sys.stderr)

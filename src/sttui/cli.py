@@ -14,6 +14,7 @@ from sttui.config import (
     load_runtime_settings,
 )
 from sttui.errors import ConfigError
+from sttui.send import SendConfig, SendTarget
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,6 +56,45 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Path to config file (default: {DEFAULT_CONFIG_PATH}).",
     )
 
+    # Send arguments (usable by run, background, etc.)
+    parser.add_argument(
+        "--send-post",
+        action="append",
+        default=[],
+        metavar="URL",
+        help="HTTP POST endpoint (can be repeated, sends done in sequence)",
+    )
+    parser.add_argument(
+        "--send-command",
+        dest="send_commands",
+        action="append",
+        default=[],
+        metavar="CMD",
+        help="Shell command to pipe transcript to (can be repeated, run in sequence)",
+    )
+    parser.add_argument(
+        "--send-socket",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Unix socket path to send to (can be repeated, sends done in sequence)",
+    )
+    parser.add_argument(
+        "--send-body",
+        action="append",
+        default=[],
+        metavar="FMT",
+        help="JSON body template for associated --send-post/--send-socket. "
+             "Sets Content-Type to JSON. In the template, $0 is replaced by the transcript.",
+    )
+    parser.add_argument(
+        "--send-delay",
+        type=int,
+        default=None,
+        metavar="MS",
+        help="When multiple --send-post or --send-socket in sequence, set delay (ms) between sends",
+    )
+
     subparsers = parser.add_subparsers(dest="command", required=False)
 
     subparsers.add_parser(
@@ -62,11 +102,51 @@ def build_parser() -> argparse.ArgumentParser:
         help="Register your OpenRouter API key",
     )
 
-    subparsers.add_parser(
+    # Run subcommand
+    run_parser = subparsers.add_parser(
         "run",
         help="Run the TUI (default)",
     )
+    # Send arguments for run subcommand
+    run_parser.add_argument(
+        "--send-post",
+        action="append",
+        default=[],
+        metavar="URL",
+        help="HTTP POST endpoint (can be repeated, sends done in sequence)",
+    )
+    run_parser.add_argument(
+        "--send-command",
+        dest="send_commands",
+        action="append",
+        default=[],
+        metavar="CMD",
+        help="Shell command to pipe transcript to (can be repeated, run in sequence)",
+    )
+    run_parser.add_argument(
+        "--send-socket",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Unix socket path to send to (can be repeated, sends done in sequence)",
+    )
+    run_parser.add_argument(
+        "--send-body",
+        action="append",
+        default=[],
+        metavar="FMT",
+        help="JSON body template for associated --send-post/--send-socket. "
+             "Sets Content-Type to JSON. In the template, $0 is replaced by the transcript.",
+    )
+    run_parser.add_argument(
+        "--send-delay",
+        type=int,
+        default=None,
+        metavar="MS",
+        help="When multiple --send-post or --send-socket in sequence, set delay (ms) between sends",
+    )
 
+    # Background recording subcommand
     background_parser = subparsers.add_parser(
         "background",
         help="Control background recording lifecycle",
@@ -80,6 +160,54 @@ def build_parser() -> argparse.ArgumentParser:
         "--notify",
         action="store_true",
         help="Send desktop notifications for background events.",
+    )
+    background_parser.add_argument(
+        "--clipboard",
+        action="store_true",
+        help="Copy transcript to clipboard (default behavior).",
+    )
+    background_parser.add_argument(
+        "--stdout",
+        action="store_true",
+        help="Write transcript to stdout.",
+    )
+    # Send arguments for background subcommand
+    background_parser.add_argument(
+        "--send-post",
+        action="append",
+        default=[],
+        metavar="URL",
+        help="HTTP POST endpoint (can be repeated, sends done in sequence)",
+    )
+    background_parser.add_argument(
+        "--send-command",
+        dest="send_commands",
+        action="append",
+        default=[],
+        metavar="CMD",
+        help="Shell command to pipe transcript to (can be repeated, run in sequence)",
+    )
+    background_parser.add_argument(
+        "--send-socket",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Unix socket path to send to (can be repeated, sends done in sequence)",
+    )
+    background_parser.add_argument(
+        "--send-body",
+        action="append",
+        default=[],
+        metavar="FMT",
+        help="JSON body template for associated --send-post/--send-socket. "
+             "Sets Content-Type to JSON. In the template, $0 is replaced by the transcript.",
+    )
+    background_parser.add_argument(
+        "--send-delay",
+        type=int,
+        default=None,
+        metavar="MS",
+        help="When multiple --send-post or --send-socket in sequence, set delay (ms) between sends",
     )
 
     recipes_parser = subparsers.add_parser(
@@ -98,59 +226,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Desktop environment keybinding recipes",
     )
 
-    send_parser = subparsers.add_parser(
-        "send",
-        help="Record, transcribe, and send to endpoints or commands",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "examples:\n"
-            "• Send the transcript as the 'text' value of a json payload:\n"
-            "    sttui send --post https://example.com --body '{\"text\": $0}'\n\n"
-            "• Send the first and second transcript parts as keys 'a' and 'b', ignore the rest:\n"
-            '    sttui send --post https://example.com --body \'{"a": $1, "b": $2}\'\n\n'
-            "• Send transcript to `/foo` endpoint, then wait 1s, then send empty palyload to `bar` endpoint:\n"
-            "    sttui send --post https://example.com/foo --body '{\"text\": $0}' --post https://example.com/bar --body '{}' --delay 1000\n\n"
-            "• Send transcript to a Unix socket (e.g., pi agent):\n"
-            '    sttui send --socket /run/user/1000/pi/sttui.sock --body \'{"message": $0}\'\n'
-        ),
-    )
-    send_parser.add_argument(
-        "--post",
-        action="append",
-        default=[],
-        metavar="URL",
-        help="HTTP POST endpoint (can be repeated, in this case posts are done in sequence)",
-    )
-    send_parser.add_argument(
-        "--command",
-        dest="send_commands",
-        action="append",
-        default=[],
-        metavar="CMD",
-        help="Shell command to pipe transcript to (can be repeated, in this case commands are run in sequence)",
-    )
-    send_parser.add_argument(
-        "--delay",
-        type=int,
-        default=None,
-        metavar="MS",
-        help="When multiple --post or --command in sequence, set the delay (ms) between sends",
-    )
-    send_parser.add_argument(
-        "--body",
-        action="append",
-        default=None,
-        metavar="FMT",
-        help="JSON body template for associated --post/--socket. Sets Content-Type to JSON. \nIn the template, $0 is replaced by the transcript, including quotes.",
-    )
-    send_parser.add_argument(
-        "--socket",
-        action="append",
-        default=[],
-        metavar="PATH",
-        help="Unix socket path to send to (can be repeated, sends are done in sequence)",
-    )
-
     parser.set_defaults(command="run")
     return parser
 
@@ -166,6 +241,24 @@ def build_background_worker_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input-device", type=int)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--notify", action="store_true")
+    parser.add_argument(
+        "--send-config",
+        type=str,
+        default=None,
+        help="JSON-serialized SendConfig for background worker",
+    )
+    parser.add_argument(
+        "--output-clipboard",
+        type=str,
+        default="1",
+        help="Whether to copy transcript to clipboard (0 or 1)",
+    )
+    parser.add_argument(
+        "--output-stdout",
+        type=str,
+        default="0",
+        help="Whether to write transcript to stdout (0 or 1)",
+    )
     return parser
 
 
@@ -251,10 +344,18 @@ opencode attach $OPENCODE_URL
 Pipe your spoken transcript straight into the agent's prompt input:
 
 ```sh
-sttui send \\
-  --post $OPENCODE_URL/tui/append-prompt \\
-  --body '{"text": $0}' \\
-  --post $OPENCODE_URL/tui/submit-prompt
+sttui run \\
+  --send-post $OPENCODE_URL/tui/append-prompt \\
+  --send-body '{"text": $0}'
+```
+
+Or use background recording with toggle:
+
+```sh
+sttui background toggle \\
+  --send-post $OPENCODE_URL/tui/append-prompt \\
+  --send-body '{"text": $0}' \\
+  --send-post $OPENCODE_URL/tui/submit-prompt
 ```
 
 - The first POST appends your transcript to the prompt.
@@ -263,8 +364,8 @@ sttui send \\
 
 ### Tips
 
-- Add `--delay 500` if the agent needs a moment between the two requests.
-- Use `sttui send` with `--command` to pipe transcripts into other CLI agents.
+- Add `--send-delay 500` if you have multiple --send-post and need a moment between the two requests.
+- Use `sttui run` or `sttui background` with `--send-command` to pipe transcripts into other CLI agents.
 """
     )
     return 0
@@ -278,17 +379,17 @@ def cmd_recipes_desktop() -> int:
 Toggle background recording from a keyboard shortcut.
 
 ```sh
-uvx sttui background toggle --notify
+uvx sttui background toggle --clipboard --notify
 ```
 
-The `--notify` flag sends desktop notifications on start/stop.
+The `--clipboard` flag copies the transcript to clipboard when recording stops. Use `--stdout` instead to write to stdout, or `--send-socket` to send to a socket.
 
 ## GNOME
 
 Open **Settings → Keyboard → Custom Shortcuts**, add:
 
 - **Name:** sttui toggle
-- **Command:** `uvx sttui background toggle --notify`
+- **Command:** `uvx sttui background toggle --clipboard --notify`
 - **Shortcut:** your preferred key combo
 
 ## KDE
@@ -296,7 +397,7 @@ Open **Settings → Keyboard → Custom Shortcuts**, add:
 Open **System Settings → Shortcuts → Custom Shortcuts**, add:
 
 - **Name:** sttui toggle
-- **Command:** `uvx sttui background toggle --notify`
+- **Command:** `uvx sttui background toggle --clipboard --notify`
 - **Trigger:** your preferred key combo
 
 ## Hyprland
@@ -304,7 +405,7 @@ Open **System Settings → Shortcuts → Custom Shortcuts**, add:
 Add to `~/.config/hypr/hyprland.conf`:
 
 ```sh
-bind = SUPER, D, exec, uvx sttui background toggle --notify
+bind = SUPER, D, exec, uvx sttui background toggle --clipboard --notify
 ```
 
 ## Sway
@@ -312,7 +413,7 @@ bind = SUPER, D, exec, uvx sttui background toggle --notify
 Add to `~/.config/sway/config`:
 
 ```sh
-bindsym $mod+d exec uvx sttui background toggle --notify
+bindsym $mod+d exec uvx sttui background toggle --clipboard --notify
 ```
 
 ## i3
@@ -320,17 +421,46 @@ bindsym $mod+d exec uvx sttui background toggle --notify
 Add to `~/.config/i3/config`:
 
 ```sh
-bindsym $mod+d exec --no-startup-id uvx sttui background toggle --notify
+bindsym $mod+d exec --no-startup-id uvx sttui background toggle --clipboard --notify
 ```
 
 ## Tips
 
+- Use `--stdout` instead of `--clipboard` if you prefer stdout output.
+- Use `--send-socket` to send transcript directly to an agent.
 - Remove `--notify` if you prefer silent toggling.
 - Use `sttui background start` / `stop` if you want separate bindings.
 - Transcripts land in `~/.local/share/sttui/recordings/`.
 """
     )
     return 0
+
+
+def _build_send_config(args: argparse.Namespace) -> SendConfig | None:
+    """Build SendConfig from send-* arguments."""
+    targets: list[SendTarget] = []
+    bodies = args.send_body or []
+    body_idx = 0
+
+    for url in args.send_post:
+        body = bodies[body_idx] if body_idx < len(bodies) else None
+        if body:
+            body_idx += 1
+        targets.append(SendTarget(kind="post", target=url, body=body))
+
+    for sock_path in args.send_socket:
+        body = bodies[body_idx] if body_idx < len(bodies) else None
+        if body:
+            body_idx += 1
+        targets.append(SendTarget(kind="socket", target=sock_path, body=body))
+
+    for cmd in args.send_commands:
+        targets.append(SendTarget(kind="command", target=cmd, body=None))
+
+    if not targets:
+        return None
+
+    return SendConfig(targets=targets, delay_ms=args.send_delay)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -359,11 +489,35 @@ def main(argv: list[str] | None = None) -> int:
             stdout_mode=False,
             debug=args.debug,
         )
+
+        # Deserialize send_config if provided
+        send_config = None
+        if args.send_config:
+            import dataclasses
+            import json
+
+            data = json.loads(args.send_config)
+            targets = [
+                SendTarget(
+                    kind=t["kind"],
+                    target=t["target"],
+                    body=t.get("body"),
+                )
+                for t in data.get("targets", [])
+            ]
+            send_config = SendConfig(targets=targets, delay_ms=data.get("delay_ms"))
+
+        output_clipboard = args.output_clipboard == "1"
+        output_stdout = args.output_stdout == "1"
+
         return run_background_worker(
             state_path=args.state_path,
             audio_path=args.audio_path,
             settings=settings,
             notify=args.notify,
+            send_config=send_config,
+            output_clipboard=output_clipboard,
+            output_stdout=output_stdout,
         )
 
     parser = build_parser()
@@ -387,9 +541,30 @@ def main(argv: list[str] | None = None) -> int:
             toggle_background,
         )
 
+        # Build send config for background actions
+        send_config = _build_send_config(args)
+
+        # Count output options for validation
+        output_count = 0
+        if args.clipboard:
+            output_count += 1
+        if args.stdout:
+            output_count += 1
+        send_targets_count = len(args.send_post) + len(args.send_socket) + len(args.send_commands)
+        output_count += send_targets_count
+
         if args.action == "stop":
+            # stop doesn't need output options, but we don't error if provided
             code, message = stop_background(notify=args.notify)
-        else:
+        elif args.action == "start":
+            # start requires exactly 1 output option
+            if output_count != 1:
+                print(
+                    "Error: exactly one output option is required "
+                    "(--clipboard, --stdout, --send-post, --send-socket, or --send-command)",
+                    file=sys.stderr,
+                )
+                return 2
             try:
                 settings = load_runtime_settings(
                     config_path=args.config,
@@ -401,48 +576,46 @@ def main(argv: list[str] | None = None) -> int:
             except ConfigError as exc:
                 print(str(exc), file=sys.stderr)
                 return 2
-            if args.action == "start":
-                code, message = start_background(settings, notify=args.notify)
-            else:
-                code, message = toggle_background(settings, notify=args.notify)
+            code, message = start_background(
+                settings,
+                notify=args.notify,
+                send_config=send_config,
+                output_clipboard=args.clipboard,
+                output_stdout=args.stdout,
+            )
+        else:  # toggle
+            # toggle also requires exactly 1 output option
+            if output_count != 1:
+                print(
+                    "Error: exactly one output option is required "
+                    "(--clipboard, --stdout, --send-post, --send-socket, or --send-command)",
+                    file=sys.stderr,
+                )
+                return 2
+            try:
+                settings = load_runtime_settings(
+                    config_path=args.config,
+                    model_override=args.model,
+                    max_seconds_override=args.max_seconds,
+                    stdout_mode=False,
+                    debug=args.debug,
+                )
+            except ConfigError as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
+            code, message = toggle_background(
+                settings,
+                notify=args.notify,
+                send_config=send_config,
+                output_clipboard=args.clipboard,
+                output_stdout=args.stdout,
+            )
         stream = sys.stdout if code == 0 else sys.stderr
         print(message, file=stream)
         return code
 
-    if args.command == "send":
-        from sttui.send import SendConfig, SendTarget
-
-        targets: list[SendTarget] = []
-        bodies = args.body or []
-        body_idx = 0
-        for i, url in enumerate(args.post):
-            body = bodies[body_idx] if body_idx < len(bodies) else None
-            if body:
-                body_idx += 1
-            targets.append(SendTarget(kind="post", target=url, body=body))
-        for sock_path in args.socket:
-            body = bodies[body_idx] if body_idx < len(bodies) else None
-            if body:
-                body_idx += 1
-            targets.append(SendTarget(kind="socket", target=sock_path, body=body))
-        for cmd in args.send_commands:
-            targets.append(SendTarget(kind="command", target=cmd, body=None))
-        if not targets:
-            print(
-                "Error: at least one --post or --command is required",
-                file=sys.stderr,
-            )
-            return 2
-        if args.delay is not None and len(targets) < 2:
-            print(
-                "Error: --delay only makes sense with multiple --post/--command",
-                file=sys.stderr,
-            )
-            return 2
-
-        send_config = SendConfig(targets=targets, delay_ms=args.delay)
-    else:
-        send_config = None
+    # Build send config for run command (or default)
+    send_config = _build_send_config(args)
 
     try:
         settings = load_runtime_settings(
