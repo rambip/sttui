@@ -11,6 +11,31 @@ const socketDir = join(runtimeDir, "pi");
 const socketPath = join(socketDir, "sttui.sock");
 
 export default function (pi: ExtensionAPI) {
+  pi.registerCommand("sttui", {
+    description: "Show sttui socket connection info",
+    handler: async (_args, ctx) => {
+      const steerCmd = `sttui run --send-socket ${socketPath} --send-body '{"message": $0, "deliverAs": "steer"}'`;
+      const followUpCmd = `sttui run --send-socket ${socketPath} --send-body '{"message": $0, "deliverAs": "followUp"}'`;
+
+      // Show as widget with copy-pasteable commands
+      ctx.ui.setWidget("sttui", [
+        "# Dictate to pi while agent is running:",
+        "",
+        "# After current tool (steer)",
+        steerCmd,
+        "",
+        "",
+        "# After agent finishes (followUp)",
+        followUpCmd,
+      ]);
+
+      // Auto-clear widget after 10 seconds
+      setTimeout(() => {
+        ctx.ui.setWidget("sttui", []);
+      }, 10000);
+    },
+  });
+
   if (!existsSync(socketDir)) mkdirSync(socketDir, { recursive: true });
   try { unlinkSync(socketPath); } catch {}
 
@@ -18,7 +43,9 @@ export default function (pi: ExtensionAPI) {
     socket.on("data", (data) => {
       try {
         const cmd = JSON.parse(data.toString());
-        if (cmd.message) pi.sendUserMessage(cmd.message);
+        if (cmd.message) {
+          pi.sendUserMessage(cmd.message, { deliverAs: cmd.deliverAs });
+        }
       } catch {}
     });
   });
@@ -28,7 +55,7 @@ export default function (pi: ExtensionAPI) {
     console.log(`[sttui] Listening on ${socketPath}`);
     pi.sendMessage({
       customType: "sttui-socket",
-      content: `# Connect sttui to pi agent\nsttui is a speech-to-text terminal app. User may be dictating thoughts.\n\`\`\`\nsttui --send-socket ${socketPath} --send-body '{"message": $0}'\n\`\`\`\n`,
+      content: "[system] user can dictate prompt with sttui. run the /sttui command to learn more.",
       display: true,
     });
   });
