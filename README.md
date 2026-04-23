@@ -122,7 +122,11 @@ All recordings and transcripts are stored in `~/.local/share/sttui/recordings/`.
 
 # Integrations
 
-## pi coding agent
+## AI coding agents (opencode, pi)
+
+Dictate directly into coding agents.
+
+### pi coding agent
 
 Dictate directly into pi using sttui's socket integration.
 

@@ -219,15 +219,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     recipes_sub = recipes_parser.add_subparsers(dest="recipe", required=False)
 
-    recipes_sub.add_parser(
-        "agents",
-        help="Integrate sttui with AI coding agents",
-    )
-
-    recipes_sub.add_parser(
-        "desktop",
-        help="Desktop environment keybinding recipes",
-    )
+    from sttui.recipes import list_recipes
+    for recipe in list_recipes():
+        recipes_sub.add_parser(
+            recipe,
+            help=f"Show {recipe} recipe",
+        )
 
     parser.set_defaults(command="run")
     return parser
@@ -300,148 +297,24 @@ def _print_md(text: str) -> None:
     console.rule(style="dim")
 
 
+def _load_recipe(name: str) -> str:
+    """Load a recipe markdown file by name."""
+    from sttui.recipes import load_recipe
+    return load_recipe(name)
+
+
 def cmd_recipes_index() -> int:
-    _print_md(
-        """\
-# sttui recipes
-
-Practical recipes organized by context.
-
-## Available chapters
-
-- **agents** — Integrate sttui with AI coding agents (opencode, etc.)
-- **desktop** — Desktop environment keybinding setup (GNOME, KDE, Hyprland, ...)
-
-Run `sttui recipes <chapter>` to read one.
-"""
-    )
+    from sttui.recipes import get_index_markdown
+    _print_md(get_index_markdown())
     return 0
 
 
 def cmd_recipes_agents() -> int:
-    _print_md(
-        """\
-# sttui + AI coding agents
-
-Dictate directly into coding agents via sttui's `send` command.
-
-## OpenCode
-
-Export the server URL once so every command below picks it up:
-
-```sh
-export OPENCODE_URL=http://localhost:4096
-```
-
-Start the agent server:
-
-```sh
-opencode serve
-```
-
-In another terminal, attach to it:
-
-```sh
-opencode attach $OPENCODE_URL
-```
-
-### Send dictation as a prompt
-
-Pipe your spoken transcript straight into the agent's prompt input:
-
-```sh
-sttui run \\
-  --send-post $OPENCODE_URL/tui/append-prompt \\
-  --send-body '{"text": $0}'
-```
-
-Or use background recording with toggle:
-
-```sh
-sttui background toggle \\
-  --send-post $OPENCODE_URL/tui/append-prompt \\
-  --send-body '{"text": $0}' \\
-  --send-post $OPENCODE_URL/tui/submit-prompt
-```
-
-- The first POST appends your transcript to the prompt.
-- The second POST submits the prompt.
-- Both fire in sequence after a single dictation.
-
-### Tips
-
-- Add `--send-delay 500` if you have multiple --send-post and need a moment between the two requests.
-- Use `sttui run` or `sttui background` with `--send-command` to pipe transcripts into other CLI agents.
-"""
-    )
+    _print_md(_load_recipe("agents"))
     return 0
-
-
 def cmd_recipes_desktop() -> int:
-    _print_md(
-        """\
-# sttui desktop keybindings
-
-Toggle background recording from a keyboard shortcut.
-
-```sh
-uvx sttui background toggle --clipboard --notify
-```
-
-The `--clipboard` flag copies the transcript to clipboard when recording stops. Use `--stdout` instead to write to stdout, or `--send-socket` to send to a socket.
-
-## GNOME
-
-Open **Settings → Keyboard → Custom Shortcuts**, add:
-
-- **Name:** sttui toggle
-- **Command:** `uvx sttui background toggle --clipboard --notify`
-- **Shortcut:** your preferred key combo
-
-## KDE
-
-Open **System Settings → Shortcuts → Custom Shortcuts**, add:
-
-- **Name:** sttui toggle
-- **Command:** `uvx sttui background toggle --clipboard --notify`
-- **Trigger:** your preferred key combo
-
-## Hyprland
-
-Add to `~/.config/hypr/hyprland.conf`:
-
-```sh
-bind = SUPER, D, exec, uvx sttui background toggle --clipboard --notify
-```
-
-## Sway
-
-Add to `~/.config/sway/config`:
-
-```sh
-bindsym $mod+d exec uvx sttui background toggle --clipboard --notify
-```
-
-## i3
-
-Add to `~/.config/i3/config`:
-
-```sh
-bindsym $mod+d exec --no-startup-id uvx sttui background toggle --clipboard --notify
-```
-
-## Tips
-
-- Use `--stdout` instead of `--clipboard` if you prefer stdout output.
-- Use `--send-socket` to send transcript directly to an agent.
-- Remove `--notify` if you prefer silent toggling.
-- Use `sttui background start` / `stop` if you want separate bindings.
-- Transcripts land in `~/.local/share/sttui/recordings/`.
-"""
-    )
+    _print_md(_load_recipe("desktop"))
     return 0
-
-
 def _build_send_config(args: argparse.Namespace) -> SendConfig | None:
     """Build SendConfig from send-* arguments."""
     targets: list[SendTarget] = []
@@ -534,11 +407,11 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_auth()
 
     if args.command == "recipes":
-        if args.recipe == "agents":
-            return cmd_recipes_agents()
-        if args.recipe == "desktop":
-            return cmd_recipes_desktop()
-        return cmd_recipes_index()
+        if args.recipe:
+            _print_md(_load_recipe(args.recipe))
+        else:
+            cmd_recipes_index()
+        return 0
 
     if args.command == "background":
         # Lazy import: background lifecycle commands don't need TUI modules.
