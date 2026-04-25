@@ -14,10 +14,17 @@ dependencies = [
   "textual>=0.79.0",
   "pytest>=8.0.0",
   "numpy>=2.4.3",
+  "setuptools>=82.0.1",
+  "pynput>=1.8.1",
 ]
 
 [project.scripts]
 sttui = "sttui.cli:main"
+
+[project.optional-dependencies]
+ydotool = [
+  "python-ydotool>=1.1.1",
+]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

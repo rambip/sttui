@@ -75,6 +75,7 @@ class RuntimeSettings:
     input_device: int | None = None
     recordings_dir: Path = DEFAULT_RECORDINGS_DIR
     stdout_mode: bool = False
+    paste_mode: bool = False
     debug: bool = False
 
 
@@ -168,6 +169,7 @@ def load_runtime_settings(
     model_override: str | None = None,
     max_seconds_override: int | None = None,
     stdout_mode: bool = False,
+    paste_mode: bool = False,
     debug: bool = False,
 ) -> RuntimeSettings:
     cfg = load_config_file(config_path)
@@ -201,5 +203,6 @@ def load_runtime_settings(
         input_device=input_device,
         recordings_dir=recordings_dir,
         stdout_mode=stdout_mode,
+        paste_mode=paste_mode,
         debug=debug,
     )

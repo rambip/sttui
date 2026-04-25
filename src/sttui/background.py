@@ -26,6 +26,32 @@ from sttui.transcribe import transcribe_audio
 _STOP_REQUESTED = False
 
 
+def _check_ydotool_available() -> None:
+    """Check if paste tool is available (pydotool with daemon or pynput fallback).
+
+    Raises AssertionError if neither tool is usable.
+    """
+    # Check if pydotool is installed
+    try:
+        import pydotool
+    except ImportError:
+        # No pydotool - check pynput fallback
+        try:
+            import pynput
+        except ImportError:
+            raise AssertionError(
+                "no paste tool available: install python-ydotool or pynput"
+            )
+        # pynput available
+        return
+
+    # pydotool is installed - require daemon running
+    socket_path = os.environ.get("YDOTOOL_SOCKET", "/run/user/1000/.ydotool_socket")
+    assert os.path.exists(socket_path), (
+        "ydotoold daemon not running. Start 'ydotoold' first."
+    )
+
+
 @dataclass(frozen=True)
 class BackgroundState:
     pid: int
@@ -116,9 +142,14 @@ def start_background(
     send_config: SendConfig | None = None,
     output_clipboard: bool = True,
     output_stdout: bool = False,
+    output_paste: bool = False,
     state_path: Path | None = None,
     log_path: Path | None = None,
 ) -> tuple[int, str]:
+    # Check ydotoold if paste mode requested
+    if output_paste:
+        _check_ydotool_available()
+
     actual_state_path = state_path or default_state_path()
     actual_log_path = log_path or default_log_path()
 
@@ -171,6 +202,8 @@ def start_background(
         cmd.append("1" if output_clipboard else "0")
         cmd.append("--output-stdout")
         cmd.append("1" if output_stdout else "0")
+        cmd.append("--output-paste")
+        cmd.append("1" if output_paste else "0")
 
         process = subprocess.Popen(
             cmd,
@@ -220,9 +253,14 @@ def toggle_background(
     send_config: SendConfig | None = None,
     output_clipboard: bool = True,
     output_stdout: bool = False,
+    output_paste: bool = False,
     state_path: Path | None = None,
     log_path: Path | None = None,
 ) -> tuple[int, str]:
+    # Check ydotoold if paste mode requested (before starting)
+    if output_paste:
+        _check_ydotool_available()
+
     actual_state_path = state_path or default_state_path()
     running = _load_live_state(actual_state_path)
     if running is not None:
@@ -233,6 +271,7 @@ def toggle_background(
         send_config=send_config,
         output_clipboard=output_clipboard,
         output_stdout=output_stdout,
+        output_paste=output_paste,
         state_path=actual_state_path,
         log_path=log_path,
     )
@@ -253,6 +292,7 @@ def run_background_worker(
     send_config: SendConfig | None = None,
     output_clipboard: bool = True,
     output_stdout: bool = False,
+    output_paste: bool = False,
 ) -> int:
     global _STOP_REQUESTED
     _STOP_REQUESTED = False
@@ -283,6 +323,12 @@ def run_background_worker(
             copy_text(transcript)
             if notify:
                 send_desktop_notification("sttui", "Background transcript copied to clipboard")
+
+        if output_paste:
+            from sttui.clipboard import paste_text
+            paste_text(transcript)
+            if notify:
+                send_desktop_notification("sttui", "Background transcript pasted at cursor")
 
         if output_stdout:
             print(transcript)

@@ -174,6 +174,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write transcript to stdout.",
     )
+    background_parser.add_argument(
+        "--paste",
+        action="store_true",
+        help="Paste transcript at cursor position.",
+    )
     # Send arguments for background subcommand
     background_parser.add_argument(
         "--send-post",
@@ -258,6 +263,12 @@ def build_background_worker_parser() -> argparse.ArgumentParser:
         type=str,
         default="0",
         help="Whether to write transcript to stdout (0 or 1)",
+    )
+    parser.add_argument(
+        "--output-paste",
+        type=str,
+        default="0",
+        help="Whether to paste transcript at cursor (0 or 1)",
     )
     return parser
 
@@ -389,6 +400,7 @@ def main(argv: list[str] | None = None) -> int:
 
         output_clipboard = args.output_clipboard == "1"
         output_stdout = args.output_stdout == "1"
+        output_paste = args.output_paste == "1"
 
         return run_background_worker(
             state_path=args.state_path,
@@ -398,6 +410,7 @@ def main(argv: list[str] | None = None) -> int:
             send_config=send_config,
             output_clipboard=output_clipboard,
             output_stdout=output_stdout,
+            output_paste=output_paste,
         )
 
     parser = build_parser()
@@ -430,6 +443,8 @@ def main(argv: list[str] | None = None) -> int:
             output_count += 1
         if args.stdout:
             output_count += 1
+        if args.paste:
+            output_count += 1
         send_targets_count = len(args.send_post) + len(args.send_socket) + len(args.send_commands)
         output_count += send_targets_count
 
@@ -441,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
             if output_count != 1:
                 print(
                     "Error: exactly one output option is required "
-                    "(--clipboard, --stdout, --send-post, --send-socket, or --send-command)",
+                    "(--clipboard, --stdout, --paste, --send-post, --send-socket, or --send-command)",
                     file=sys.stderr,
                 )
                 return 2
@@ -462,13 +477,14 @@ def main(argv: list[str] | None = None) -> int:
                 send_config=send_config,
                 output_clipboard=args.clipboard,
                 output_stdout=args.stdout,
+                output_paste=args.paste,
             )
         else:  # toggle
             # toggle also requires exactly 1 output option
             if output_count != 1:
                 print(
                     "Error: exactly one output option is required "
-                    "(--clipboard, --stdout, --send-post, --send-socket, or --send-command)",
+                    "(--clipboard, --stdout, --paste, --send-post, --send-socket, or --send-command)",
                     file=sys.stderr,
                 )
                 return 2
@@ -489,6 +505,7 @@ def main(argv: list[str] | None = None) -> int:
                 send_config=send_config,
                 output_clipboard=args.clipboard,
                 output_stdout=args.stdout,
+                output_paste=args.paste,
             )
         stream = sys.stdout if code == 0 else sys.stderr
         print(message, file=stream)

@@ -55,7 +55,7 @@ export default function (pi: ExtensionAPI) {
     console.log(`[sttui] Listening on ${socketPath}`);
     pi.sendMessage({
       customType: "sttui-socket",
-      content: "[system] user can dictate prompt with sttui. run the /sttui command to learn more.",
+      content: "[MESSAGE FOR THE USER] 🎤 type /sttui to start dictating",
       display: true,
     });
   });
