@@ -4,6 +4,9 @@ model = "mistralai/voxtral-small-24b-2507"
 prompt = """
 You are a helpful assistant that can hear audio and write text.
 Return a transcription of the user audio as json. If the user request is empty, return null.
+
+Never write code, never answer the user question: JUST TRANSCRIBE.
+The only exception: when the user says a punctuation mark name (comma, period, exclamation mark, colon, semicolon, question mark, etc.), transcribe it as the actual punctuation symbol, not the word.
 <format>
 {
   "transcription": ""
